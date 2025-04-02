@@ -1,0 +1,92 @@
+---
+title: "Entrega1_est_bay"
+author: "Dafne"
+date: "2024-09-11"
+output: pdf_document
+---
+
+----------------------------A---------------------------------------------
+
+```{r}
+n <- 12
+N <- 30
+thetas <- seq(0, 1, length.out = N)
+alpha <- 1
+beta <- 1
+k <- 12
+
+prior <- dbeta(thetas, alpha, beta)
+posterior <- dbeta(thetas, alpha + k, beta + (n - k))
+
+prior_normalizado <- prior/ sum(prior)
+posterior_normalizado <- posterior / sum(posterior)
+```
+
+
+```{r}
+plot(thetas, posterior_normalizado, col = "red", pch = 16, cex = 1.5, ylim = c(0, max(posterior_normalizado)), main = "Comparación Prior y Posterior  Grilla",
+     xlab = "Theta", ylab = "Densidad")
+points(thetas, prior_normalizado, col = "blue", pch = 16, cex = 1.5)
+```
+
+```{r}
+
+
+samples <- rbeta(1000, 13, 1)
+hist(samples, freq = FALSE, breaks = 30, xlim = c(0, 1), main = "Histograma y Densidad de Beta", xlab = "Theta", ylab = "Densidad")
+thetas <- seq(0, 1, length.out = 30)
+points(thetas, dbeta(thetas, 13, 1), col = "blue", lwd = 2)
+
+
+```
+
+--------------------------------B-----------------------------------------
+```{r}
+posterior_predictive <- function(posterior_normalizado, thetas, tamaño_prediccion, proximo_res){
+  proba <- 0
+  for(i in 1:length(thetas)){
+    proba <- proba + dbinom(proximo_res, tamaño_prediccion, thetas[i]) * posterior_normalizado[i]
+  }
+  return(proba)
+}
+```
+
+
+```{r}
+proba_montiel_meta_penal <- posterior_predictive(posterior_normalizado, thetas, 1, 1)
+print(paste("Proba de que meta el penal 13:", proba_montiel_meta_penal))
+```
+En el enfoque bayesiano, diríamos que la probabilidad de meter el penal es el número fijo que nos devuelve el posterior predictive, mientras que en el enfoque frecuentista diríamos que, si repitiésemos muchísimas veces el tiro del penal, la suma de las bernoullis se acercaría a la proba que nos dio la función. Si nos vamos más a lo extremo, por Likelihood el bayesiano diría que va a meta el penal, mientras que el frecuentista cree que seguramente meta el penal.
+
+--------------------------------------C-------------------------------------------------
+
+Suponemos que son independientes, y nuestras creencias, que se hacen concretas a través del prior. Además, en el caso de este ejercicio, sabíamos que Montiel dentro de la selección (no sabemos afuera), había metido todos los penales, pero estamos tomando una muestra medio sesgada porque seguramente no metió todos los penales de su vida. Elijo creer. A CHEQUEAR
+
+--------------------------------------D--------------------------------------------------
+Extra: esto no es lo que había que hacer, sería como si hiciera 10 goles, cuántos acertaría.
+```{r}
+
+num_muestras <- 1000
+tamaño_prediccion <- 10
+resultados <- numeric(num_muestras)
+
+for (i in 1:num_muestras) { #Este for lo puedo hacer porque la suma de Bin(1, p) indep es Bin(num_muestras, p)
+  
+  theta_muestra <- sample(thetas, size = 1, prob = posterior_normalizado, replace = TRUE)
+  resultados[i] <- rbinom(1, tamaño_prediccion, theta_muestra)
+}
+
+hist(resultados, breaks = 0:tamaño_prediccion, freq = FALSE, main = "Distribución Posterior Predictiva",
+     xlab = "Penales Convertidos", ylab = "Frecuencia Relativa", col = "lightblue", border = "black")
+
+```
+
+-------------------------------------E------------------------------------------
+```{r}
+meter_al_menos_8 <- 0
+for (i in 8:10){
+  meter_al_menos_8 <- meter_al_menos_8 + posterior_predictive(posterior_normalizado, thetas, 10, i)
+}
+meter_al_menos_8
+```
+

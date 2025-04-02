@@ -1,0 +1,197 @@
+---
+title: "BAYES_TP2"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-09-24"
+---
+
+```{r }
+
+```
+a)La distribución geometrica modela la cantidad de tiradas de una moneda pesada hasta que salga cara, donde thita es la probabilidad de que salga cara. 
+b) foto
+c) sí, dado que el posterior pertenece a la misma familia de distribución que el prior (ambos siguen una beta).
+
+
+PARTE 2
+PARTE A
+```{r}
+#Simulo mis datos hija-padre
+set.seed(2024)
+n <- 1000 
+
+beta_0 <- 160  
+beta_1 <- 0.6
+sigma <- 2
+
+
+x <- rnorm(n, mean = 0, sd = 10)
+y <- beta_0 + beta_1 * x + rnorm(n, mean = 0, sd = sigma)
+datos <- data.frame(padre = x, hija = y)
+
+plot(datos$padre, datos$hija, xlab = "Altura del padre (cm)", ylab = "Altura de la hija (cm)",
+     main = "Relación entre la altura del padre y la hija")
+
+```
+
+```{r}
+# Definimos los priores
+prior_beta_0 <- dnorm(c(150, 170), mean = 160, sd = 20)
+prior_beta_1 <- dbeta(c(0.4, 0.8), shape1 = 6, shape2 = 5)
+prior_sigma <- dnorm(c(1, 3),0, 0.3)
+```
+
+$ L(\beta_0, \beta_1, \sigma \mid \mathbf{y}, \mathbf{x}) = \prod_{i=1}^{n} \frac{1}{\sqrt{2\pi\sigma^2}} \exp\left(-\frac{(y_i - (\beta_0 + \beta_1 x_i))^2}{2\sigma^2}\right)$
+
+
+PARTE B
+```{r}
+# Likelihood
+log_likelihood <- function(beta_0, beta_1, sigma, datos) {
+  n <- nrow(datos)
+  y <- datos$hija
+  x <- datos$padre
+  mu <- beta_0 + beta_1 * x
+  
+  # Log-likelihood de los datos
+  ll <- -n/2 * log(2 * pi) - n/2 * log(sigma) - sum((y - mu)^2) / (2 * sigma^2)
+  
+  return(ll)
+}
+
+```
+
+```{r}
+set.seed(2024)
+beta <- rbeta(1000, 6, 5)
+hist(beta)
+```
+PARTE C
+
+Vamos a ver qué elementos necesito para el MCMC:
+1) Voy a samplear de una distribución g más fácil, que la planteo como
+
+$g(\theta_{t+1} | \theta_t) = N(\theta_t , \sigma²)$
+
+donde g es la probabilidad de cambiar a ese estado en la cadena de Markov.
+
+2) Acepto $\theta_{t+1}$ con probabilidad $A(\theta_t \rightarrow \theta_{t+1})$, donde tengo que 
+
+$$
+\forall a, b \ \ p(a) T(a \rightarrow b) = p(b) T(b \rightarrow a)$
+\\
+\Rightarrow \frac{f(a)}{NC} \cdot g(b|a) A(a \rightarrow b) = \frac{f(b)}{NC} \cdot g(a|b) A(b \rightarrow a)
+\\
+\Rightarrow \frac{A(a \rightarrow b)}{A(b \rightarrow a)} = \frac{f(b)}{f(a)} \cdot \frac{g(a|b)}{g(b|a)} = r_f \cdot r_g
+$$
+Como g es simétrica $\rightarrow r_g = 1$
+
+Si $r_f < 1 \Rightarrow  A(a \rightarrow b) = r_f \land A(b \rightarrow a) = 1$
+Si $r_f \geq 1 \Rightarrow  A(a \rightarrow b) = 1 \land A(b \rightarrow a) = \frac{1}{r_f}$
+
+Entonces para $A(a \rightarrow b) = min\{1, r_f\}$
+```{r}
+inRango <- function(valor ,izq, der){
+  return(izq <= valor & der >= valor)
+}
+
+MCMC <- function(beta_0, beta_1, sigma, datos){
+  set.seed(2024)
+  theta_t = c(beta_0, beta_1, sigma)
+  n = 10000
+  aceptadas <- 0
+  
+  # Prealocamos los vectores
+  beta_0_s <- numeric(n)
+  beta_1_s <- numeric(n)
+  sigmas <- numeric(n)
+  
+  for (i in 1:n) {
+    # Propuestas de nuevos parámetros
+    beta_0_sig <- rnorm(1, mean= theta_t[1], sd=1)
+    beta_1_sig <- rnorm(1, mean=theta_t[2], sd=0.05)
+    sigma_sig <- rnorm(1, mean=theta_t[3], sd=0.5)
+    theta_t1 <- c(beta_0_sig, beta_1_sig , sigma_sig)
+    
+    # Computo f = prior * likelihood
+    log_prior_t  <- log(dnorm(theta_t[1], mean=160, sd=10)) + log(dbeta(theta_t[2], 6, 5)) + log(dunif(theta_t[3], 0, 10))
+    
+    # Chequeo si las propuestas están dentro del rango
+    if(!inRango(sigma_sig, 0, 10) | !inRango(beta_1_sig, 0, 1)){
+      beta_0_s[i] <- theta_t[1]
+      beta_1_s[i] <- theta_t[2]
+      sigmas[i] <- theta_t[3]
+    } else {
+      log_prior_t1 <- log(dnorm(beta_0_sig, mean=160, sd=10)) + log(dbeta(beta_1_sig, 6, 5)) + log(dunif(sigma_sig, 0, 10))
+      
+      log_like_t <- log_likelihood(theta_t[1], theta_t[2], theta_t[3], datos)
+      log_like_t1 <- log_likelihood(beta_0_sig, beta_1_sig, sigma_sig, datos)
+      
+      log_f_t  <- log_prior_t + log_like_t
+      log_f_t1 <- log_prior_t1 + log_like_t1
+      
+      log_u <- log(runif(1, 0, 1))
+      log_rate <- log_f_t1 - log_f_t
+      
+      # Heurística de aceptación
+      if(log_u < log_rate){
+        theta_t <- theta_t1
+        aceptadas <- aceptadas + 1
+      }
+      beta_0_s[i] <- theta_t[1]
+      beta_1_s[i] <- theta_t[2]
+      sigmas[i] <- theta_t[3]
+    }
+  }
+  
+  # Cálculo de la tasa de aceptación
+  tasa_aceptacion <- aceptadas / n
+  cat("Tasa de aceptación:", tasa_aceptacion, "\n")
+  
+  # Burn-in y Thinning
+  burn_in <- 2000
+  thinning <- 10
+  indices <- seq(burn_in + 1, n, by = thinning)
+  
+  beta_0_s <- beta_0_s[indices]
+  beta_1_s <- beta_1_s[indices]
+  sigmas <- sigmas[indices]
+  
+  # Resultados finales
+  cat("Media beta_0:", mean(beta_0_s), "\n")
+  cat("Media beta_1:", mean(beta_1_s), "\n")
+  cat("Media sigma:", mean(sigmas), "\n")
+  
+  return(list(beta_0 = beta_0_s, beta_1 = beta_1_s, sigma = sigmas))
+}
+```
+
+
+```{r}
+#Imprimimos los resultados
+resultados <- MCMC(140, 0.5, 5, datos)
+
+# Extraer las muestras
+beta_0_s <- resultados$beta_0
+beta_1_s <- resultados$beta_1
+sigmas <- resultados$sigma
+
+# Graficar las cadenas
+par(mfrow=c(3,2))
+
+plot(beta_0_s, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración')
+hist(beta_0_s, breaks=30, main=expression(beta[0]), xlab='Valor')
+
+plot(beta_1_s, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración')
+hist(beta_1_s, breaks=30, main=expression(beta[1]), xlab='Valor')
+
+plot(sigmas, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración')
+hist(sigmas, breaks=30, main=expression(sigma), xlab='Valor')
+```
+
+PARTE D
+
+
+
+

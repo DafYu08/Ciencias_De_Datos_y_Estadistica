@@ -1,0 +1,472 @@
+---
+title: "BAYES_TP2"
+author: "Dafne Yudcovsky"
+date: "2024-09-24"
+output: pdf_document
+---
+
+Ejercicio 1
+
+Supongamos que uno tiene una variable aleatoria Y que puede modelar con una distribución geométrica. Es decir que $P(Y=y∣θ)=θ(1−θ)y−1P(Y=y∣θ)=θ(1−θ)y−1$ para $y∈{1,2,3,…} $Se utiliza un prior $Beta(a,b) $ para $θ$.
+
+¿Qué situación se representa con una variable aleatoria geométrica?
+a)La distribución geometrica modela la cantidad de tiradas de una moneda pesada hasta que salga cara, donde thita es la probabilidad de que salga cara. 
+
+Derivar la distribución posterior para θ suponiendo que se observó Y=y. Identificar la distribución encontrada y sus parámetros.
+b) Derivo analíticamente la distribución del posterior 
+```{r}
+# Cargar la librería
+library(jpeg)
+
+# Leer la imagen en formato JPG
+imagen <- readJPEG("Ej1b.jpg")
+
+# Configurar la ventana gráfica sin ejes ni marcos
+par(mar = c(0, 0, 0, 0))  # Eliminar los márgenes
+plot(NA, xlim = c(0, 1), ylim = c(0, 1), type = "n", axes = FALSE, xlab = "", ylab = "")  # Ventana vacía
+
+# Mostrar la imagen
+rasterImage(imagen, 0, 0, 1, 1)  # Dibujar la imagen en toda la ventana
+```
+
+¿El modelo Beta es un prior conjugado de la Geométrica?
+c) sí, dado que el posterior pertenece a la misma familia de distribución que el prior (ambos siguen una beta).
+
+
+Ejercicio 2:
+Identificar una pregunta que se pueda responder con un modelo de regresión lineal con
+$β0, β1, σ$ como parámetros a estimar. Por ejemplo puede ser, altura del hijo en función de
+altura de la madre, velocidad máxima de un auto en función de caballos de fuerza, etc. Usá
+tus propios datos o simulalos.
+
+$Yi ∼ N (μ(xi), σ^2)$
+$μ = β0 + β1 \cdot xi$
+
+Hoy no apelo a la originalidad con la elección de mis datos. Decidí simular datos de padres e hijas, donde la altura del progenitor determina la altura de su hija en la adultez. Por lo que conozco del mundo, los generé con media 175 a los padres. Una observación es que corrí el eje X a (x - 175) porque no tiene mucho sentido hacerme la pregunta de cuánto va a medir una hija cuyo padre tiene altura 0.
+
+```{r}
+#Simulo mis datos hija-padre
+set.seed(2024)
+n <- 1000 
+
+beta_0 <- 160  
+beta_1 <- 0.6
+sigma <- 2
+
+
+x <- rnorm(n, mean = 0, sd = 10)
+y <- beta_0 + beta_1 * x + rnorm(n, mean = 0, sd = sigma)
+datos <- data.frame(padre = x, hija = y)
+
+original <- plot(datos$padre, datos$hija, xlab = "Altura del padre (cm)", ylab = "Altura de la hija (cm)",
+     main = "Relación entre la altura del padre y la hija")
+original
+```
+
+PARTE A: Proponer priors para $β0, β1 \ y\  σ$
+```{r}
+prior_beta_0 <- dnorm(c(150, 170), mean = 160, sd = 20)
+prior_beta_1 <- dbeta(c(0.4, 0.8), shape1 = 6, shape2 = 5)
+#prior_sigma <- dnorm(c(1, 3), 2, 0.5)
+prior_sigma <- dexp(c(0, 10), 1/2)
+```
+
+Por ejemplo, quiero que beta_1 se vea así:
+```{r}
+set.seed(2024)
+beta_1_graf <- rbeta(5000, 6, 5)
+beta_0_graf <- rnorm(5000, 160, 20)
+#sigma_graf <- rnorm(5000, 2, 0.5)
+sigma_graf <- rexp(1000, 1/2)
+par(mfrow=c(1, 3))
+hist(beta_0_graf)
+hist(beta_1_graf)
+hist(sigma_graf)
+
+```
+
+PARTE B: Escribir la likelihood de los datos de forma analítica en función de los parámetros. (Esto sí lo hice en latex)
+
+$ L(\beta_0, \beta_1, \sigma \mid \mathbf{y}, \mathbf{x}) = L(\theta | datos)= \prod_{i = 1}^n P(Y_i = y_i | \theta)= \prod_{i=1}^{n} \frac{1}{\sqrt{2\pi\sigma^2}} \exp\left(-\frac{(y_i - (\beta_0 + \beta_1 x_i))^2}{2\sigma^2}\right)$
+
+```{r}
+# Likelihood
+log_likelihood <- function(beta_0, beta_1, sigma, datos) {
+  n <- nrow(datos)
+  y <- datos$hija
+  x <- datos$padre
+  mu <- beta_0 + beta_1 * x
+
+  ll <- -n/2 * log(2 * pi) - n/2 * log(sigma) - sum((y - mu)^2) / (2 * sigma^2)
+  
+  return(ll)
+}
+
+```
+
+PARTE C: Implementar el algoritmo de Metrópolis (MCMC) y generar 5.000 samples del posterior
+sin descontar el tramo inicial de la cadena (burn = 0).
+
+Vamos a ver qué elementos necesito para el MCMC:
+1) Voy a samplear de una distribución g más fácil, que la planteo como
+
+$g(\theta_{t+1} | \theta_t) = N(\theta_t , \sigma²)$
+
+donde g es la probabilidad de cambiar a ese estado en la cadena de Markov.
+
+2) Acepto $\theta_{t+1}$ con probabilidad $A(\theta_t \rightarrow \theta_{t+1})$, donde tengo que 
+
+$$
+\forall a, b \ \ p(a) T(a \rightarrow b) = p(b) T(b \rightarrow a)$
+\\
+\Rightarrow \frac{f(a)}{NC} \cdot g(b|a) A(a \rightarrow b) = \frac{f(b)}{NC} \cdot g(a|b) A(b \rightarrow a)
+\\
+\Rightarrow \frac{A(a \rightarrow b)}{A(b \rightarrow a)} = \frac{f(b)}{f(a)} \cdot \frac{g(a|b)}{g(b|a)} = r_f \cdot r_g
+$$
+Como g es simétrica $\rightarrow r_g = 1$
+
+Si $r_f < 1 \Rightarrow  A(a \rightarrow b) = r_f \land A(b \rightarrow a) = 1$
+Si $r_f \geq 1 \Rightarrow  A(a \rightarrow b) = 1 \land A(b \rightarrow a) = \frac{1}{r_f}$
+
+Entonces para $A(a \rightarrow b) = min\{1, r_f\}$
+```{r}
+inRango <- function(valor ,izq, der){
+  return(izq <= valor & der >= valor)
+}
+
+MCMC <- function(beta_0, beta_1, sigma, datos){
+  set.seed(2024)
+  theta_t = c(beta_0, beta_1, sigma)
+  n = 5000
+  aceptadas <- 0
+  
+  beta_0_s <- numeric(n)
+  beta_1_s <- numeric(n)
+  sigmas <- numeric(n)
+  
+  for (i in 1:n) {
+    # Propuestas de nuevos parámetros
+    beta_0_sig <- rnorm(1, mean= theta_t[1], sd=1)
+    beta_1_sig <- rnorm(1, mean=theta_t[2], sd=0.05)
+    sigma_sig <- rnorm(1, mean=theta_t[3], sd=0.5)
+    theta_t1 <- c(beta_0_sig, beta_1_sig , sigma_sig)
+    
+    # Computo f = prior * likelihood
+    log_prior_t  <- log(dnorm(theta_t[1], mean=160, sd=10)) + log(dbeta(theta_t[2], 6, 5)) +log(dexp(theta_t[3], 1/2))  #log(dunif(theta_t[3], 0, 10))
+    
+    # Chequeo si las propuestas están dentro del rango
+    if(!inRango(sigma_sig, 0, 10) | !inRango(beta_1_sig, 0, 1)){
+      beta_0_s[i] <- theta_t[1]
+      beta_1_s[i] <- theta_t[2]
+      sigmas[i] <- theta_t[3]
+    } else {
+      log_prior_t1 <- log(dnorm(beta_0_sig, mean=160, sd=10)) + log(dbeta(beta_1_sig, 6, 5)) + log(dunif(sigma_sig, 0, 10))
+      
+      log_like_t <- log_likelihood(theta_t[1], theta_t[2], theta_t[3], datos)
+      log_like_t1 <- log_likelihood(beta_0_sig, beta_1_sig, sigma_sig, datos)
+      
+      log_f_t  <- log_prior_t + log_like_t
+      log_f_t1 <- log_prior_t1 + log_like_t1
+      
+      log_u <- log(runif(1, 0, 1))
+      log_rate <- log_f_t1 - log_f_t
+      
+      # Heurística de aceptación
+      if(log_u < log_rate){
+        theta_t <- theta_t1
+        aceptadas <- aceptadas + 1
+      }
+      beta_0_s[i] <- theta_t[1]
+      beta_1_s[i] <- theta_t[2]
+      sigmas[i] <- theta_t[3]
+    }
+  }
+  
+  # Cálculo de la tasa de aceptación
+  tasa_aceptacion <- aceptadas / n
+  print(paste("Cantidad de aceptadas: ", tasa_aceptacion))
+  
+  # Burn-in y Thinning
+  burn_in <- 0 #Pido burn-in= 0 (agarro todo)
+  thinning <- 1 #Este parámetro sirve para tomar cierta fracción de la muestra. En este caso elijo analizar todo.
+  indices <- seq(burn_in + 1, n, by = thinning)
+  
+  beta_0_s <- beta_0_s[indices]
+  beta_1_s <- beta_1_s[indices]
+  sigmas <- sigmas[indices]
+  
+  #sugerencia: para chequear que esté haciendo lo que tiene que hacer, me printeo el promedio de cada vector del posterior a ver si se parece a lo que quiero.
+  print(paste("beta_0: ", mean(beta_0_s)))
+  print(paste("beta_1: ", mean(beta_1_s)))
+  print(paste("sigma: ", mean(sigmas)))
+  
+  return(list(beta_0 = beta_0_s, beta_1 = beta_1_s, sigma = sigmas))
+}
+```
+
+PARTE D: Graficar la cadena resultante (en 3d para todo el posterior o independientemente para
+cada parámetro en 3 gráficos distintos). ¿Parece haber convergido la cadena?
+
+```{r}
+#Imprimimos los resultados
+resultados <- MCMC(140, 0.5, 5, datos)
+
+
+# Grafico las cadenas resultantes. Primero lo voy a hacer en 2d para tres gráficos distintos.
+beta_0_s <- resultados$beta_0
+beta_1_s <- resultados$beta_1
+sigmas <- resultados$sigma
+
+
+plot(beta_0_s, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet", lwd = "3")
+plot(beta_1_s, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen", lwd = "3")
+plot(sigmas, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred", lwd = "3")
+```
+
+Como podemos observar, si dejamos el burn-in vemos que al principio fluctua entre distintos valores hasta que dado un momento se estabilizan los tres parámetros de theta. Luego, dan lugar a mesetas que hacen evidente que el método llega a un equilibrio.
+
+```{r}
+hist(beta_0_s, breaks = 30, main=expression(beta[0]), xlab='Valor')
+hist(beta_1_s, breaks = 30, main=expression(beta[1]), xlab='Valor')
+hist(sigmas, breaks = 30, main=expression(sigma), xlab='Valor')
+
+```
+
+```{r}
+#Ahora lo voy a plotear en 3d
+
+library(plotly)
+
+beta_0_s <- resultados$beta_0
+beta_1_s <- resultados$beta_1
+sigmas <- resultados$sigma
+
+fig <- plot_ly(x = ~beta_0_s, y = ~beta_1_s, z = ~sigmas, 
+               type = 'scatter3d', mode = 'lines',
+               line = list(width = 6, color = ~beta_0_s, colorscale = 'none'))
+
+#Esto lo que hace es todo lo que no va adentro del gráfico, se separa
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'Beta 0'),
+                                   yaxis = list(title = 'Beta 1'),
+                                   zaxis = list(title = 'Sigma')),
+                      title = 'Evolución de Beta 0, Beta 1 y Sigma')
+
+fig #Mientras más oscuro es el color, es que hizo más iteraciones. 
+```
+
+En este caso, se puede observar cómo se estabiliza el método. 
+
+PARTE E: Repetir el inciso c) y d) para 3 cadenas paralelas. Grafíquelas superpuestas con colores
+distintos. ¿Cuántos samples tarda en llegar a estado de equilibrio (a ojo)?
+REPITO TODO TRES VECES PARA OTROS THETA
+
+```{r}
+resultados_1 <- MCMC(140, 0.5, 5, datos)
+resultados_2 <- MCMC(150, 0.7, 6, datos)
+resultados_3 <- MCMC(180, 0.3, 7, datos)
+resultados_4 <- MCMC(165, 0.2, 1, datos)
+
+beta_0_s_1 <- resultados_1$beta_0
+beta_1_s_1 <- resultados_1$beta_1
+sigmas_1 <- resultados_1$sigma
+
+beta_0_s_2 <- resultados_2$beta_0
+beta_1_s_2 <- resultados_2$beta_1
+sigmas_2 <- resultados_2$sigma
+
+beta_0_s_3 <- resultados_3$beta_0
+beta_1_s_3 <- resultados_3$beta_1
+sigmas_3 <- resultados_3$sigma
+
+beta_0_s_4 <- resultados_4$beta_0
+beta_1_s_4 <- resultados_4$beta_1
+sigmas_4 <- resultados_4$sigma
+```
+
+
+```{r}
+par(mfrow=c(3,4))
+plot(beta_0_s_1, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_2, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_3, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_4, type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+
+plot(beta_1_s_1, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_2, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_3, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_4, type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+
+plot(sigmas_1, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_2, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_3, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_4, type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+```
+Lo miro entre las iteraciones 1 a 500 para ver bien cuándo converge:
+
+```{r}
+par(mfrow=c(3,4))
+plot(beta_0_s_1[1:500], type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_2[1:500], type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_3[1:500], type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+plot(beta_0_s_4[1:500], type='l', main=expression(beta[0]), ylab='Valor', xlab='Iteración', col = "darkviolet")
+
+plot(beta_1_s_1[1:500], type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_2[1:500], type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_3[1:500], type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+plot(beta_1_s_4[1:500], type='l', main=expression(beta[1]), ylab='Valor', xlab='Iteración', col = "darkgreen")
+
+plot(sigmas_1[1:500], type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_2[1:500], type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_3[1:500], type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+plot(sigmas_4[1:500], type='l', main=expression(sigma), ylab='Valor', xlab='Iteración', col = "darkred")
+```
+En este punto se concluye que no importa con qué prior empiece, cuando computo MCMC, por la likelihood, iterativamente llego aproximadamente a la distribución del posterior deseada. Y sé que esto es correcto pues se corresponde con los datos generados.
+A ojímetro, converge en la iteración ~200
+
+```{r}
+fig <- plot_ly() %>%
+
+  add_trace(x = ~beta_0_s_1, y = ~beta_1_s_1, z = ~sigmas_1, 
+            type = 'scatter3d', mode = 'lines',
+            line = list(width = 6, color = 'blue'), name = "Theta 1") %>%
+
+  add_trace(x = ~beta_0_s_2, y = ~beta_1_s_2, z = ~sigmas_2, 
+            type = 'scatter3d', mode = 'lines',
+            line = list(width = 6, color = 'red'), name = "Theta 2") %>%
+  
+  add_trace(x = ~beta_0_s_3, y = ~beta_1_s_3, z = ~sigmas_3, 
+            type = 'scatter3d', mode = 'lines',
+            line = list(width = 6, color = 'green'), name = "Theta 3") %>%
+  
+  add_trace(x = ~beta_0_s_4, y = ~beta_1_s_4, z = ~sigmas_4, 
+            type = 'scatter3d', mode = 'lines',
+            line = list(width = 6, color = 'purple'), name = "Theta 4") %>%
+  
+  add_trace(x = c(resultados_1[1]), y = c(resultados_1[2]), z = c(resultados_1[3]),
+            type = 'scatter3d', mode = 'markers', 
+            marker = list(size = 20, color = 'black'), name = "Punto específico")
+
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'Beta 0'),
+                                   yaxis = list(title = 'Beta 1'),
+                                   zaxis = list(title = 'Sigma')),
+                      title = 'Tomando cuatro thetas distintos')
+
+fig
+```
+
+PARTE F: Elija al azar 100 samples del posterior y grafique las 100 rectas correspondientes superpuestas a los datos. 
+
+Acá tengo dos opciones. O bien cambio el parámetro thinning de mi función para que solo me samplee 100 (pongo t = 50), o más fácil uso la función sample.
+
+```{r}
+set.seed(2024)
+beta_0_100 <- sample(resultados$beta_0, size = 100, replace = FALSE)
+beta_1_100 <- sample(resultados$beta_1, size = 100, replace = FALSE)
+
+plot(datos$padre, datos$hija, xlab = "Altura del padre (cm)", ylab = "Altura de la hija (cm)",
+     main = "Relación entre la altura del padre y la hija")
+
+for (i in 1:length(beta_0_100)){
+  x_vals <- seq(min(datos$padre), max(datos$padre), length.out = 100)
+  y_vals <- beta_0_100[i] + beta_1_100[i] * x_vals 
+  
+  lines(x_vals, y_vals, col = rgb(0, 0, 1, alpha = 0.5))
+}
+```
+
+G) Genere una distribución posterior predictive para Y con algún X fijo. Utilícela para
+responder alguna pregunta relevante a sus datos.
+
+Fijo X (alguno), en este caso X = 170 y tomo aleatoriamente un $\theta = (\beta_0, \beta_1, \sigma)$. Después de eso me puedo hacer alguna pregunta.
+
+```{r}
+x_fijo <- -5 #Porque el eje x está corrido como (x - 175)
+
+#para cada beta_0 y beta_1, les corresponde una varianza que es su sigma
+posterior_predictive_y <- beta_0_s + beta_1_s * x_fijo + rnorm(length(beta_0_s), mean = 0, sd = sigmas)
+
+hist(posterior_predictive_y, main = "Hijas para padre que mide 170")
+```
+
+Pregunta 1: ¿Cuál es la probabilidad de que la hija mida menos de 160?
+
+```{r}
+print(mean(posterior_predictive_y <= 160))
+```
+
+Ahora quiero hacer un intervalo de credibilidad para la $\tilde{y} = E(Y | X = x) = E(Y | X = -5)$
+Y pienso en una "normal" alrededor de las rectas, por lo que $\sigma = 0$ y mi recta es exactamente la combinación lineal de cada $\beta_0, \beta_1$ con el x_fijo. 
+Si quiero que mi IC sea del 95%, tomo los cuantiles simétricos a derecha e izquierda. El resultado tiene sentido porque estoy mirando por dónde pasan las rectas.
+
+```{r}
+y_medio <- beta_0_s + beta_1_s * x_fijo
+print(c(quantile(y_medio, 0.025), quantile(y_medio, 0.975)))
+
+```
+
+
+PARTE 3: Para los mismos datos, mismo modelo y mismos priors del ejercicio 2, haga la regresión
+lineal utilizando brms o un paquete similar.
+
+```{r}
+library("brms")
+
+ajuste_lineal <- brm(hija ~ padre, data = datos)
+#summary(ajuste_lineal)
+#print(ajuste_lineal)
+```
+
+a) Grafique, utilizando el paquete, las cadenas marginales. ¿Parecen haber convergido?
+
+```{r}
+mcmc_plot(ajuste_lineal, type = "trace")
+```
+A simple vista, al no tener estructura parece que las cuatro cadenas convergen a lo mismo. Esto ocurre debido a que la librería remueve la parte del burn-in, mostrando solo la parte en la que cada cadena comienza a estabilizarse. Si no tiene estructura, es que están todas muy cerca y eso es bueno.
+
+b) ¿Coinciden los posteriors marginales (los de cada parámetro por separado) con los
+calculados en el ejercicio 2?
+
+```{r}
+posterior_brms <- posterior_samples(ajuste_lineal)
+
+par(mfrow = c(3, 2))
+
+hist(beta_0_s, main=expression(beta[0]), xlab='Valor')
+hist(posterior_brms$Intercept, breaks = 30, main = expression(beta[0]), xlab = "Valor")
+
+hist(beta_1_s, main=expression(beta[1]), xlab='Valor')
+hist(posterior_brms$b_padre, breaks = 30, main = expression(beta[1]), xlab = "Valor")
+
+hist(sigmas, main=expression(sigma), xlab='Valor')
+hist(posterior_brms$sigma, breaks = 30, main = expression(sigma), xlab = "Valor")
+```
+En la primera columna, podemos observar las distribuciones posteriores manuales y en la segunda las de la librería. La diferencia entre ambos gráficos parece clara, pero en realidad tiene que ver con que a mano dejamos el burn-in y la librería lo saca, por lo que la escala de la izquierda muestra valores del histograma que casi ni tienen frecuencia pero de todas maneras los dejó. Fuera de eso, los valores que se reflejan son muy similares, lo que se puede observar en la parte con más frecuencia de la izquierda contra la derecha, que se corresponde con la etapa en la que la cadena ya está estable.
+
+c) Compute la respuesta al ítem g) del ejercicio 2. ¿Coinciden estas respuestas?
+
+```{r}
+x_fijo <- -5
+
+posterior_predictive_y_2 <- posterior_brms$b_Intercept + posterior_brms$b_padre * x_fijo + rnorm(length(posterior_brms$b_Intercept), mean = 0, sd = posterior_brms$sigma)
+
+hist(posterior_predictive_y_2, main = "Hijas para padre que mide 170")
+```
+
+Pregunta 1: ¿Cuál es la probabilidad de que la hija mida menos de 160?
+
+```{r}
+print(mean(posterior_predictive_y_2 <= 160))
+```
+Esta me dio distinto, bastante más. Puede que se deba de nuevo a haber sacado la etapa burn-in, pero igual resultan ambas bastante grandes. 
+
+```{r}
+y_medio_2 <- posterior_brms$b_Intercept + posterior_brms$b_padre * x_fijo
+print(c(quantile(y_medio_2, 0.025), quantile(y_medio_2, 0.975)))
+
+```
+Acá dio prácticamente lo mismo.
+
+Una extensión de lo que se hizo sería probar un burn-in de 200, que es donde empieza a estabilizarse la cadena para el punto 2, y compararlo con brms. Hipotéticamente, los resultados de esa forma deberían parecerse mucho más.
+
+GRACIAS TOTALES
+
