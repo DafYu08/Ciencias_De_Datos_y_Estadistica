@@ -1,0 +1,156 @@
+
+
+```{r}
+setwd("~/Herramientas de Visualizacion")
+library(ggplot2)
+library(MASS)
+library(plotly)
+library(viridis)
+library(gridExtra)
+```
+
+EJERCICIO 1
+
+```{r}
+
+datos_1 <- read.csv("PBI.csv")
+datos_1 <- as.data.frame(datos_1)
+
+pairs(datos_1[, c("Agricultura", "Industria", "Energia")],
+      main = "Matriz de dispersión de Agricultura, Industria y Energía",
+      pch = 19,  # Tipo de punto
+      col = "blue")  # Color de los puntos
+
+```
+
+Vemos que la relación de proporcionalidad se da entre Industria y Energía pues la pendiente de la aproximación lineal que se puede
+realizar es positiva.
+
+```{r}
+
+vector_promedio <- c(mean(datos_1$Agricultura), mean(datos_1$Industria), mean(datos_1$Energia))
+X <- as.matrix(datos_1)
+
+n <-nrow(X)
+I <-diag(n)
+ones <- matrix(1, n, n)
+H <- I - (1/n) * ones
+
+X_tilde <- H %*% X
+
+vector_promedio
+X_tilde
+colMeans(X_tilde)
+```
+
+```{r}
+Q = t(X_tilde) %*% X_tilde
+
+est_covarianza = Q/(n-1) 
+S <- est_covarianza
+
+```
+Como X tenía la información centrada, Q es la matriz simetrica que tiene XtX, y por definición Var(X) = cov(X, X) que es lo que estamos haciendo ya que la media es 0. La matriz contiene un producto interno que hace referencia a la estructura de las relaciones lineales entre las variables. Esta matriz es simétrica y tiene el mismo rango que X. Sus elementos proporcionan información sobre las correlaciones y las magnitudes de las interacciones entre las diferentes variables.
+
+
+```{r}
+
+d1 <- (S[1][1])**(-1/2)
+d2 <- (S[2][2])**(-1/2)
+d3 <- (S[3][3])**(-1/2)
+D <- diag(c(d1, d2, d3))
+
+Z <- X_tilde %*% D #Consultar por qué y qué hace
+#Y supongo que la matriz de varianza y covarianza se hace como Q
+```
+
+EJERCICIO 2
+
+```{r}
+
+datos_2 <- read.table("placas.txt", header = TRUE)
+n = 14
+
+X <- as.matrix(datos_2)
+A <- matrix(c(4,4,5,2), nrow=2, ncol = 2, byrow=TRUE)
+
+Y <- matrix(nrow=14, ncol = 2, byrow=TRUE)
+for (i in 1:14) {
+  aux <- A %*% X[i, ]
+  Y[i, ] <- aux
+} 
+Y
+```
+```{r}
+cov(X)
+cor(X)
+cov(Y)
+cor(Y)
+```
+EJERCICIO 3
+```{r}
+
+ejercicio_3 <- function(X, m){
+  suma = 0
+  n = nrow(X)
+  for(i in 1:n){
+    suma <- suma + (X[i, ] - m) %*% t(X[i, ] - m)
+  }
+  suma <- suma/(n-1)
+  return(suma)
+}
+
+```
+
+a) Si reemplazamos el vector m por el vector de los promedios de cada columna p, obtenemos el mismo resultado que con la matriz de covarianza.
+
+b) Para obtener el mismo resultado que la función correlación, el vector m sigue teniendo que ser el promedio, pero nada más tengo que "normalizarla y adimensionalizarla", es decir, dividir la covarianza por la norma.
+
+EJERCICIO 4
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#ejercicio 1.5
+
+set.seed(1234)
+datos <- mvrnorm(n = 50, mu = c(0,0), Sigma = matrix(c(1, 1/2, 1/2, 1), nrow = 2, ncol = 2, byrow = TRUE))
+
+# Convert matrix to data frame with appropriate column names
+datos_df <- as.data.frame(datos)
+colnames(datos_df) <- c("x", "y")
+
+a1 <- c(1, 1) / sqrt(2)
+
+# Calcular proyecciones
+datos_df$proyeccion <- datos_df$x * a1[1] + datos_df$y * a1[2]
+
+# Crear la gráfica
+ggplot(datos_df, aes(x = x, y = y)) +
+  geom_point(size = 2, alpha = 0.8, color = "grey") +
+  geom_point(aes(x = proyeccion * a1[1], y = proyeccion * a1[2]), color = "red", size = 3) +
+  geom_abline(intercept = 0, slope = a1[2] / a1[1], linetype = "dashed") +
+  labs(title = "Proyección de los datos sobre el vector a normalizado",
+       x = "X1",
+       y = "X2") +
+  theme_minimal() +
+  coord_fixed()
+```
+

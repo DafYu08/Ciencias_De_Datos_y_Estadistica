@@ -1,0 +1,253 @@
+---
+title: "Prefinal-Yudcovsky"
+date: "2024-09-24"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(MASS)
+library(ggplot2)
+library(glmnet)
+library(e1071)
+library(ROCR)
+```
+
+```{r}
+datos <- read.table("stocks.txt", header = T, sep= " ")
+```
+
+PARTE 1
+```{r}
+datos$lag1 <- as.numeric(datos$lag1)
+datos$lag2 <- as.numeric(datos$lag2)
+datos$lag3 <- as.numeric(datos$lag3)
+datos$lag4 <- as.numeric(datos$lag4)
+datos$lag5 <- as.numeric(datos$lag5)
+```
+
+```{r}
+variables_predictoras <- datos[, c(-1, -8)]
+colnames(variables_predictoras) <- c("lag1", "lag2", "lag3", "lag4",
+    "lag5", "volumen")
+
+#Como no se veía nada cuando intentaba hacer el pairs para 1250 datos, decidí tomar algunos.
+
+tamaño_pairs <- 0.05
+indices_para_sacar <- sample(seq_len(nrow(variables_predictoras)), size = (1 - tamaño_pairs) * nrow(variables_predictoras))
+
+saco <- variables_predictoras[indices_para_sacar, ]
+pongo <- variables_predictoras[-indices_para_sacar, ]
+pairs(pongo, col = "violet")
+```
+En el diagrama de dispersión, a priori no se puede observar una relación lineal entre alguna de las variables que vamos a usar para realizar la clasificación. Quizás tal vez un poco en volúmen contra el resto, pero no lo veo nada claro. Mi objetivo era ver si había algura correlación lineal entre los datos, o con una forma particular ajustable a alguna función conocida, pero los que son lag_i vs lag_j son prácticamente chatos.
+
+```{r}
+#Otra cosa que podemos hacer es realizar boxplots paralelos
+
+boxplot(variables_predictoras$lag1, variables_predictoras$lag2, variables_predictoras$lag3, variables_predictoras$lag4, variables_predictoras$lag5, variables_predictoras$volumen)
+```
+Lo primero que hice cuando vi que eran todos iguales fue buscar el error en el código porque no podía ser que sean todos los lag prácticamente idénticos, pero no era un error. Porque como es una serie de tiempo, el valor que estaba en lag1 en el paso anterior ahora está en lag2, y el que estaba en lag2 ahora en lag3, etc => los datos de las 5 columnas son prácticamente los mismos excepto por los primeros y últimos días de cada una, por lo que perfectamente se podría ---- REDUCIR LA DIMENSIÓN---- ####. 
+
+Voy a hacer el de volumen un poco más grande porque está a otra escala (me lo anoto para después).
+```{r}
+boxplot(variables_predictoras$volumen)
+#Parece que se distribuye bastante normal.
+```
+PARTE 2
+
+```{r}
+#Antes que nada, empecemos diciendo que "Up" = 1 y que "Down" = 0
+
+datos$direc <- ifelse(datos$direc == "Up", 1, ifelse(datos$direc == "Down", 0, NA))
+
+test <- datos[datos$anio == "2005", ]
+train <- datos[datos$anio != "2005", ]
+```
+
+No usamos sample para samplear los datos porque en principio los queremos ordenados ya que estamos hablando de un índice bursátil, por lo que es una serie de tiempo y nos importa predecir el presente con los datos ordenados del pasado. Si desordeno los datos me pierdo la evolución temporal de los mismos y no tendría sentido una predicción en una medida ordenada como es el tiempo.
+
+ARRANCA EL ENTRENAMIENTO
+
+```{r}
+
+matriz_res <- matrix(nrow = 4, ncol = 3)
+colnames(matriz_res) <- c("Accuracy", "Sensibilidad (Recall)", "Especificidad")
+
+train <- as.data.frame(train)
+test <- as.data.frame(test)
+
+```
+
+```{r}
+
+
+# Regresión logística
+  regresion_log <- glm(direc ~ lag1 + lag2 + lag3 + lag4 + lag5 + volumen, data = train, family = "binomial")
+  prediccion_log <- predict.glm(regresion_log, test, type = "response")
+  prediccion_direc_log <- ifelse(prediccion_log >= 0.5, 1, 0) #Tomo un umbral de 0.5 para la clasificación.
+  accuracy_log <- mean(test$direc == prediccion_direc_log) #Veo cuántos me clasificó bien.
+  print(accuracy_log)
+  matriz_res[1,1] <- accuracy_log
+  
+# LDA
+  ajuste_lda <- lda(direc ~ lag1 + lag2 + lag3 + lag4 + lag5 + volumen, data = train)
+  prediccion_lda <- predict(ajuste_lda, test)
+  prediccion_direc_lda <- prediccion_lda$class
+  accuracy_lda <- mean(test$direc == prediccion_direc_lda) #Miro cuántos me clasificó bien
+  print(accuracy_lda)
+  matriz_res[2,1] <- accuracy_lda
+  
+# QDA
+  ajuste_qda <- qda(direc ~ lag1 + lag2 + lag3 + lag4 + lag5 + volumen, data = train)
+  prediccion_qda <- predict(ajuste_qda, test)
+  prediccion_direc_qda <- prediccion_qda$class
+  accuracy_qda <- mean(test$direc == prediccion_direc_qda) #Miro cuántos me clasificó bien
+  print(accuracy_qda)
+  matriz_res[3,1] <- accuracy_qda
+  
+#Naive Bayes
+  ajuste_nb <- naiveBayes(direc ~ lag1 + lag2 + lag3 + lag4 + lag5 + volumen, data = train)
+  prediccion_nb <- predict(ajuste_nb, test, type = "raw")
+  prediccion_direc_nb <- ifelse(prediccion_nb[, 2] >= 0.5, 1, 0) #Tomo un umbral de 0.5 para la clasificación.
+  accuracy_nb <- mean(test$direc == prediccion_direc_nb) #Veo cuántos me clasificó bien.
+  print(accuracy_nb)
+  matriz_res[4,1] <- accuracy_nb
+
+```
+
+Para mejorar el accuracy de la regresión logística voy a probar regularizar con una Elastic Net que va a determinar el parámetro $\alpha$
+para utilizar una combinación cuasi convexa entre Rigde y Lasso. Uso el comando sugerido.
+
+```{r}
+x_train <- as.matrix(train[, c("lag1", "lag2", "lag3", "lag4", "lag5", "volumen")])
+y_train <- train$direc
+x_test <- as.matrix(test[, c("lag1", "lag2", "lag3", "lag4", "lag5", "volumen")])
+y_test <- test$direc
+
+logistica_regularizado <- cv.glmnet(x_train, y_train, family = "binomial", alpha = 0.5, nfolds = 5)
+
+prediccion_regularizada <- predict(logistica_regularizado, s = "lambda.min", newx = x_test, type = "response")
+prediccion_direc_regularizada <- ifelse(prediccion_regularizada >= 0.5, 1, 0)
+
+accuracy_regularizada <- mean(y_test == prediccion_direc_regularizada)
+print(accuracy_regularizada)
+
+#Bueno, mejoró un poco comparado con el 0.694. Nos quedamos con la regularizada.
+
+matriz_res[1,1] <- accuracy_regularizada
+
+```
+```{r}
+#Calculo la sensibilidad: Verdaderos Positivos / (Verdaderos Positivos + Falsos Negativos)
+
+#Regresión logística:
+
+total_negativos <- sum(test$direc == 1)
+
+verdaderos_negativos_1 <- sum(test$direc == 1 & prediccion_direc_regularizada == 1)
+matriz_res[1,2] <- verdaderos_negativos_1 / total_negativos
+
+verdaderos_negativos_2 <- sum(test$direc == 1 & prediccion_direc_lda == 1)
+matriz_res[2,2] <- verdaderos_negativos_2 / total_negativos
+
+verdaderos_negativos_3 <- sum(test$direc == 1 & prediccion_direc_qda == 1)
+matriz_res[3,2] <- verdaderos_negativos_3 / total_negativos
+
+verdaderos_negativos_4 <- sum(test$direc == 1 & prediccion_direc_nb == 1)
+matriz_res[4,2] <- verdaderos_negativos_4 / total_negativos
+
+
+```
+
+```{r}
+#Calcular la especificidad: Verdaderos Negativos / (Verdaderos Negativos + Falsos Positivos)
+total_negativos <- sum(test$direc == 0)
+
+verdaderos_negativos_1 <- sum(test$direc == 0 & prediccion_direc_regularizada == 0)
+matriz_res[1,3] <- verdaderos_negativos_1 / total_negativos
+
+verdaderos_negativos_2 <- sum(test$direc == 0 & prediccion_direc_lda == 0)
+matriz_res[2,3] <- verdaderos_negativos_2 / total_negativos
+
+verdaderos_negativos_3 <- sum(test$direc == 0 & prediccion_direc_qda == 0)
+matriz_res[3,3] <- verdaderos_negativos_3 / total_negativos
+
+verdaderos_negativos_4 <- sum(test$direc == 0 & prediccion_direc_nb == 0)
+matriz_res[4,3] <- verdaderos_negativos_4 / total_negativos
+```
+
+```{r}
+print(matriz_res)
+```
+Como estamos hablando de análisis bursátil, hay dos cosas "malas" que le pueden pasar a un corredor de bolsa: (Formalmente, queremos computar lo que está fuera de la diagonal de la matriz de confusión. En el caso dicotómico, serían los falsos negativos y falsos positivos)
+1- No invertir porque predice las acciones van a bajar cuando en realidad iban a subir ("falso negativo") ya que no invirtió porque pensaba que su dinero iba a perder valor.
+2- Invertir cuando se predice que las acciones van a subir cuando en realidad bajan ("falso positivo").
+Si nos vamos a los hechos históricos, cada vez que pasó la segunda ocurrieron catástrofes como la crisis del Wall Street en el 29 o la crisis de 2008. ¿Qué ocurre? En realidad, si bien en el primer caso se perdió costo de oportunidad, es peor en este caso invertir mucho dinero y perderlo. Por lo que me voy a enfocar en reducir los FP.
+
+Ahora bien, bajo este análisis, la sensibilidad no nos importa porque no incluye falsos positivos. Entonces, queremos alto Accuracy (VP/ (VP + FP)) y alta Especificidad (VN / (VN + FP)). Por lo que en este caso, QDA o Naive Bayes van a ser las opciones elegidas, que cuentan con muy poca diferencia en ambos (ganó QDA pero para estos datos específicos, para otros u otra muestra podría ganar el otro).
+
+PUNTO D
+
+```{r}
+# La de la regresión logística la hago con la regularizada.
+#Bueno, acá hago para todas lo sugerido en la consigna con prediction() y performance() como está detallado en el help de ROCR.
+vector_AUC <- c()
+
+ROC_reg <- prediction(prediccion_regularizada, test$direc)
+perf_reg <- performance(ROC_reg, "tpr", "fpr")
+auc_reg <- performance(ROC_reg, "auc")@y.values[[1]]
+vector_AUC <- c(vector_AUC, auc_reg)
+
+ROC_lda <- prediction(prediccion_lda$posterior[, 2], test$direc)
+perf_lda <- performance(ROC_lda, "tpr", "fpr")
+auc_lda <- performance(ROC_lda, measure = "auc")@y.values[[1]]
+vector_AUC <- c(vector_AUC, auc_lda)
+
+ROC_qda <- prediction(prediccion_qda$posterior[, 2], test$direc)
+perf_qda <- performance (ROC_qda,"tpr", "fpr")
+auc_qda <- performance(ROC_qda,"auc")@y.values[[1]]
+vector_AUC <- c(vector_AUC, auc_qda)
+
+
+ROC_nb <- prediction(prediccion_nb[, 2], test$direc)
+perf_nb <- performance(ROC_nb,"tpr", "fpr")
+auc_nb <- performance(ROC_nb, "auc")@y.values[[1]]
+vector_AUC <- c(vector_AUC, auc_nb)
+
+print(vector_AUC)
+```
+Recordemos que lo que calcula el AUC es, como su nombre lo indica, -The area under the curve-. Si llamamos $p = 1 - F_0(c)$ a 1 - Especificidad, c al valor crítico, tenemos que: 
+
+$AUC =\int_0^1 ROC(p) dp = P(Y_1 > Y_0) = 1 -F_1(F_0^{-1}(1 - p)) \\ p \in (0,1)$ 
+
+Por lo tanto, tanto qda como naive bayes clasifican casi perfecto para variaciones del valor crítico c. Veamos cómo se ven las curvas ROC en un plot.
+
+```{r}
+# Graficar todas las curvas ROC en una sola gráfica
+plot(perf_reg, col = "purple", main = "Curvas ROC", lwd =5)
+plot(perf_lda, col = "darkgreen", add = TRUE, lwd = 3)
+plot(perf_qda, col = "darkred", add = TRUE, lwd = 4)
+plot(perf_nb, col = "darkorange", add = TRUE, lwd = 3)
+abline(a = 0, b = 1, lty = 2, col = "gray")
+
+legend("bottomright", legend = c("Reg. Log. Regul.", "LDA", "QDA", "Naive-Bayes"), col = c("purple", "darkgreen", "darkred", "darkorange"), lwd = 3)
+```
+Mi respuesta sigue siendo la misma que en el inciso anterior, seguiría sugiriendo o bien QDA o bien Naive Bayes, porque de nuevo, para datos un poco distintos el órden de precisión de QDA para las ROC puede ser mejor que NB, pero con estos datos, podemos decir que:
+
+En el c, pudimos ver que en Accuracy y Especificidad, que decidí que eran los índicen que quería maximizar, ganaba QDA. En cambio, en este inciso gana Naive Bayes en AUC.
+
+PARTE 3
+En conclusión, para lo descripto anteriormente, elegiría QDA o Naive Bayes porque sus performance son muy similares y precisas para lo que se busca, que en mi caso decidí minimizar los FP porque a mi entender son los más graves que ocurran (como cuando en test de hipótesis queríamos minimizar error de tipo 1). Lo que propondría para seguir un análisis más profundo (que sale del 'scope' del prefinal, pero si quieren me gustaría saber si está bien la intuición), yo podría querer realizar un test de hipótesis de esta pinta:
+
+$P(Rechazar H_0 | H_0) = \alpha$ pequeño, donde $H_0 = ${Las acciones van a bajar}. Por lo que quiero controlar es error de invertir cuando no convenía haciendo alusión a lo mencionado anteriormente.
+
+
+GRACIAS TOTALES
+
+
+
+
+
+

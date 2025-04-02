@@ -1,0 +1,111 @@
+---
+title: "clase10"
+author: "dafu"
+date: "2024-09-12"
+output: pdf_document
+---
+
+```{r}
+library(corrplot)
+library(CCA)
+```
+
+```{r}
+datos <- read.table("olympic.txt", header = T, sep = ",")
+datos <- as.data.frame(datos)
+
+datos$X100 <- -datos$X100
+datos$X400 <- -datos$X400
+datos$X110 <- -datos$X110
+datos$X1500 <- -datos$X1500
+
+X <- datos[, c(3, 7, 8, 9)]
+Y <- datos[, c(-3, -7, -8, -9)]
+```
+
+
+```{r}
+#Análisis de correlaciones
+corrplot(cor(datos), method="color", col= colorRampPalette(c("yellow", "green", "blue"))(200))
+```
+```{r}
+corrplot(cor(X, Y), method="color", col= colorRampPalette(c("yellow", "green", "blue"))(200))
+corrplot(cor(Y, X), method="color", col= colorRampPalette(c("yellow", "green", "blue"))(200))
+```
+Vamos a hacer correlación canónica a mano. Buscamos las 4 estimaciones de las matrices de covarianza.
+```{r}
+est_sigma_11 <- solve(cov(X))
+est_sigma_12 <- cov(X, Y)
+est_sigma_22 <- solve(cov(Y))
+est_sigma_21 <- cov(Y, X)
+
+matriz_magica_1 <- est_sigma_11 %*% est_sigma_12 %*% est_sigma_22 %*% est_sigma_21
+matriz_magica_2 <- est_sigma_22 %*% est_sigma_21 %*% est_sigma_11 %*% est_sigma_12
+
+matriz_magica_1
+matriz_magica_2
+```
+```{r}
+aval_avec_1 <- eigen(matriz_magica_1)
+ro_cuadrados <- aval_avec_1$values
+alpha_estrella <- aval_avec_1$vectors
+
+aval_avec_2 <- eigen(matriz_magica_2)
+beta_estrella <- aval_avec_2$vectors
+```
+
+Quiero que t(alpha1) %*% Cov(X,X) %*% alpha1 = 1
+t(beta1) %*% Cov(Y,Y) %*% beta1 = 1
+```{r}
+alpha_estrella_1 <- alpha_estrella[,1]
+beta_estrella_1 <- beta_estrella[,1]
+
+escalar_alpha <- diag(t(alpha_estrella_1) %*% est_sigma_11 %*% alpha_estrella_1)
+alphas <- alpha_estrella/ sqrt(escalar_alpha)
+diag(t(alphas) %*% est_sigma_11 %*% alphas)
+
+escalar_beta <- diag(t(beta_estrella_1) %*% est_sigma_22 %*% beta_estrella_1)
+betas <- beta_estrella/ sqrt(escalar_beta)
+diag(t(betas) %*% est_sigma_22 %*% betas)
+```
+
+Planteo primera componente
+```{r}
+ro_1 <- ro_cuadrados[1] #maxima correlación entre X e Y
+
+X <- as.matrix(X)
+Y <- as.matrix(Y)
+u_1 <- (X %*% t(alphas))[, 1]
+v_1 <- (Y %*% t(betas))[, 1]
+```
+
+```{r}
+u_2 <- (X %*% t(alphas))[, 2]
+v_2 <- (Y %*% t(betas))[, 2]
+u_3 <- (X %*% t(alphas))[, 3]
+v_3 <- (Y %*% t(betas))[, 3]
+u_4 <- (X %*% t(alphas))[, 4]
+v_4 <- (Y %*% t(betas))[, 4]
+```
+
+```{r}
+par(mfrow = c(1, 1))
+plot(u_1, v_1)
+
+scatter.smooth(u_1, v_1)
+scatter.smooth(u_2, v_2)
+scatter.smooth(u_3, v_3)
+scatter.smooth(u_4, v_4)
+#plot(u_2, v_2)
+#plot(u_3, v_3)
+#plot(u_4, v_4)
+
+
+```
+
+```{r}
+correlacion_canonica <- cc(X, Y)
+plt.cc(correlacion_canonica)
+```
+
+

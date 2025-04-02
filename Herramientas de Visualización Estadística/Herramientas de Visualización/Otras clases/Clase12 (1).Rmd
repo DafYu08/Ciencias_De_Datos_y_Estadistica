@@ -1,0 +1,259 @@
+
+```{r}
+library(MASS)
+library(ggplot2)
+library(caret)
+```
+
+EJERCICIO A MANO ENTERO PARTE 1 USANDO LA PROPUESTA 3
+
+```{r}
+set.seed(2024)
+sigma <- 0.05
+n = 200
+theta1 <- runif(n, 0, 2* pi)
+x11 <- cos(theta1) + rnorm(n, 0, sigma)
+x12 <- sin(theta1) + rnorm(n, 0, sigma)
+
+sigma <- 0.2
+theta2 <- runif(n, 0, 2* pi)
+x21 <- sqrt(runif(n, 0, 1))* cos(theta2)
+x22 <- sqrt(runif(n, 0, 1))* sin(theta2)
+
+plot(x11, x12, asp = 1, col = "red")
+points(x21, x22, col = "blue")
+```
+```{r}
+datos <- data.frame(
+  x1 = c(x11, x21),
+  x2 = c(x12, x22),
+  clase = factor(c(rep(1, n), rep(0, n)))
+)
+
+tamaño_test <- 0.2
+set.seed(2024) 
+train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+
+train <- datos[train_indices, ]
+test <- datos[-train_indices, ]
+
+# Visualización de las dos clases
+plot(train$x1, train$x2, asp = 1, col = ifelse(train$clase == 1, "red", "blue"), pch = 16, main = "Conjunto de Entrenamiento")
+points(test$x1, test$x2, col = ifelse(test$clase == 1, "red", "blue"), pch = 17, main = "Conjunto de Test")
+```
+Ajusto mi conjunto de train por Regresión Logística
+
+```{r}
+
+regresion_log <- glm(clase~x1 + x2, data = train, family = "binomial")
+summary(regresion_log)
+```
+```{r}
+
+prediccion <- predict.glm(regresion_log, test, type = "response")
+
+prediccion_clase <- ifelse(prediccion >= 0.5, 2, 1)
+
+error_test <- mean(test$clase != prediccion_clase)
+print(paste("Error:", error_test))
+
+```
+```{r}
+ajuste_lda <- lda(clase ~ x1 + x2, train)
+summary(ajuste_lda)
+```
+```{r}
+prediccion_lda <- predict(ajuste_lda, test)
+prediccion_lda_clase <- prediccion_lda$class
+error_test <- mean(test$clase != prediccion_lda_clase)
+print(paste("Error:", error_test))
+```
+
+```{r}
+ajuste_qda <- qda(clase~ x1 + x2, train)
+summary(ajuste_qda)
+```
+```{r}
+prediccion_qda <- predict(ajuste_qda, test)
+prediccion_qda_clase <- prediccion_qda$class
+error_test <- mean(test$clase != prediccion_qda_clase)
+print(paste("Error:", error_test))
+```
+
+```{r}
+library(MASS)
+library(ggplot2)
+library(caret)
+
+set.seed(2024)
+Nrep <- 100
+
+errores_train <- matrix(NA, nrow = Nrep, ncol = 3)
+errores_test <- matrix(NA, nrow = Nrep, ncol = 3)
+
+colnames(errores_train) <- colnames(errores_test) <- c("Logistica", "LDA", "QDA")
+
+tamaño_test <- 0.2
+
+for (i in 1:Nrep) {
+  sigma <- 0.05
+  n <- 200
+  theta1 <- runif(n, 0, 2 * pi)
+  x11 <- cos(theta1) + rnorm(n, 0, sigma)
+  x12 <- sin(theta1) + rnorm(n, 0, sigma)
+
+  sigma <- 0.2
+  theta2 <- runif(n, 0, 2 * pi)
+  x21 <- sqrt(runif(n, 0, 1)) * cos(theta2)
+  x22 <- sqrt(runif(n, 0, 1)) * sin(theta2)
+
+  datos <- data.frame(
+    x1 = c(x11, x21),
+    x2 = c(x12, x22),
+    clase = factor(c(rep(1, n), rep(0, n))) 
+  )
+
+  set.seed(2024)
+  train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+
+  train <- datos[train_indices, ]
+  test <- datos[-train_indices, ]
+
+  # Regresión Logística
+  regresion_log <- glm(clase ~ x1 + x2, data = train, family = "binomial")
+  pred_train_log <- ifelse(predict(regresion_log, train, type = "response") >= 0.5, 1, 0)
+  pred_test_log <- ifelse(predict(regresion_log, test, type = "response") >= 0.5, 1, 0)
+  
+  errores_train[i, "Logistica"] <- mean(train$clase != pred_train_log)
+  errores_test[i, "Logistica"] <- mean(test$clase != pred_test_log)
+
+  # LDA
+  ajuste_lda <- lda(clase ~ x1 + x2, data = train)
+  pred_train_lda <- predict(ajuste_lda, train)$class
+  pred_test_lda <- predict(ajuste_lda, test)$class
+
+  errores_train[i, "LDA"] <- mean(train$clase != pred_train_lda)
+  errores_test[i, "LDA"] <- mean(test$clase != pred_test_lda)
+
+  # QDA
+  ajuste_qda <- qda(clase ~ x1 + x2, data = train)
+  pred_train_qda <- predict(ajuste_qda, train)$class
+  pred_test_qda <- predict(ajuste_qda, test)$class
+
+  errores_train[i, "QDA"] <- mean(train$clase != pred_train_qda)
+  errores_test[i, "QDA"] <- mean(test$clase != pred_test_qda)
+}
+
+errores_train_df <- data.frame(errores_train, Repeticion = 1:Nrep)
+errores_test_df <- data.frame(errores_test, Repeticion = 1:Nrep)
+
+errores_train_long <- reshape2::melt(errores_train_df, id.vars = "Repeticion", variable.name = "Metodo", value.name = "Error")
+errores_test_long <- reshape2::melt(errores_test_df, id.vars = "Repeticion", variable.name = "Metodo", value.name = "Error")
+```
+
+
+
+```{r}
+ggplot(errores_train_long, aes(x = Metodo, y = Error, fill = Metodo)) +
+  geom_boxplot(outlier.shape = NA) +  # Eliminar los puntos de los valores atípicos
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Añadir jitter para visualizar mejor los puntos
+  ggtitle("Errores de Entrenamiento por Método")
+
+ggplot(errores_test_long, aes(x = Metodo, y = Error, fill = Metodo)) +
+  geom_boxplot(outlier.shape = NA) +  # Eliminar los puntos de los valores atípicos
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Añadir jitter para visualizar mejor los puntos
+  ggtitle("Errores de Testeo por Método")
+
+```
+
+Ahora vamos a repetir el experimento anterior con otras distribuciones y clases. 
+
+Arranquemos con el de la normal.
+
+```{r}
+# Función para calcular el error de LDA/QDA
+error <- function(ajuste, test){
+  prediccion <- predict(ajuste, test)
+  prediccion_clase <- prediccion$class
+  error_test <- mean(test$clase != prediccion_clase)
+  return(error_test)
+}
+
+# Función para calcular el error de la regresión logística
+error_logistica <- function(regresion, test){
+  prediccion <- predict.glm(regresion, test, type = "response")
+  prediccion_clase <- ifelse(prediccion >= 0.5, 1, 0)
+  error_test <- mean(test$clase != prediccion_clase)
+  return(error_test)
+}
+
+experimento <- function(clase1, clase2){
+  x11 <- clase1[, 1]
+  x12 <- clase1[, 2]
+  x21 <- clase2[, 1]
+  x22 <- clase2[, 2]
+  
+  n <- nrow(clase1) # Asumiendo que ambas clases tienen el mismo número de observaciones
+  
+  datos <- data.frame(
+    x1 = c(x11, x21),
+    x2 = c(x12, x22),
+    clase = factor(c(rep(1, n), rep(0, n)))
+  )
+  
+  set.seed(2024) 
+  tamaño_test <- 0.2
+  train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+  
+  train <- datos[train_indices, ]
+  test <- datos[-train_indices, ]
+    
+  # Regresión logística
+  regresion_log <- glm(clase ~ x1 + x2, data = train, family = "binomial")
+  error_reg <- error_logistica(regresion_log, test)
+  
+  # LDA
+  ajuste_lda <- lda(clase ~ x1 + x2, data = train)
+  error_lda <- error(ajuste_lda, test)
+  
+  # QDA
+  ajuste_qda <- qda(clase ~ x1 + x2, data = train)
+  error_qda <- error(ajuste_qda, test)
+  
+  return(c(error_reg, error_lda, error_qda))
+}
+```
+
+
+```{r}
+set.seed(2024)
+
+n <- 200
+ros <- c(0, 0.5, 0.8)
+deltas <- c(1, 2, 3)
+
+error_log_exp <- matrix(nrow = length(ros), ncol = length(deltas))
+error_lda_exp <- matrix(nrow = length(ros), ncol = length(deltas))
+error_qda_exp <- matrix(nrow = length(ros), ncol = length(deltas))
+
+for (i in seq_along(ros)){
+  for (j in seq_along(deltas)) {
+    sigma <- matrix(c(1, ros[i], ros[i], 1), 2, 2, byrow = T)
+    clase1 <- mvrnorm(n, c(0, 0), Sigma = sigma)
+    clase2 <- mvrnorm(n, c(deltas[j], deltas[j]), Sigma = sigma)
+    resultados_experimentos <- experimento(clase1, clase2)
+    error_log_exp[i, j] <- resultados_experimentos[1]
+    error_lda_exp[i, j] <- resultados_experimentos[2]
+    error_qda_exp[i, j] <- resultados_experimentos[3]
+  }
+}
+
+print("Errores logística: ")
+error_log_exp
+print("Errores lda: ")
+error_lda_exp
+print("Errores qda: ")
+error_qda_exp
+
+```
+

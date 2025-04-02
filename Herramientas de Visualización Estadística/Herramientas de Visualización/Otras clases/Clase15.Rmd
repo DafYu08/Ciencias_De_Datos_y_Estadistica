@@ -1,0 +1,149 @@
+---
+title: "Clase15"
+author: "Dafne"
+date: "2024-10-01"
+output: html_document
+---
+```{r}
+library(MASS)
+library(ggplot2)
+library(caret)
+library(e1071)
+```
+
+EJERCICIO A MANO ENTERO PARTE 1 USANDO LA PROPUESTA 3
+
+```{r}
+set.seed(2024)
+sigma <- 0.05
+n = 200
+theta1 <- runif(n, 0, 2* pi)
+x11 <- cos(theta1) + rnorm(n, 0, sigma)
+x12 <- sin(theta1) + rnorm(n, 0, sigma)
+
+sigma <- 0.2
+theta2 <- runif(n, 0, 2* pi)
+x21 <- sqrt(runif(n, 0, 1))* cos(theta2)
+x22 <- sqrt(runif(n, 0, 1))* sin(theta2)
+
+plot(x11, x12, asp = 1, col = "red")
+points(x21, x22, col = "blue")
+```
+```{r}
+datos <- data.frame(
+  x1 = c(x11, x21),
+  x2 = c(x12, x22),
+  clase = factor(c(rep(1, n), rep(0, n)))
+)
+
+tamaño_test <- 0.2
+set.seed(2024) 
+train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+
+train <- datos[train_indices, ]
+test <- datos[-train_indices, ]
+
+# Visualización de las dos clases
+plot(train$x1, train$x2, asp = 1, col = ifelse(train$clase == 1, "red", "blue"), pch = 16, main = "Conjunto de Entrenamiento")
+points(test$x1, test$x2, col = ifelse(test$clase == 1, "red", "blue"), pch = 17, main = "Conjunto de Test")
+```
+```{r}
+error_svm <- function(svm_res, test){
+  pred.svm<-predict(svm_res,newdata = test)
+  ECM.svm <- mean(pred.svm!=test$clase)
+  return(ECM.svm)  # Error Empírico OUT-sample
+}
+```
+
+```{r}
+set.seed(2024)
+Nrep <- 100
+
+errores_train <- matrix(NA, nrow = Nrep, ncol = 6)
+errores_test <- matrix(NA, nrow = Nrep, ncol = 6)
+
+colnames(errores_train) <- colnames(errores_test) <- c("Logistica", "LDA", "QDA", "svm_lineal", "svm_polinomio_3", "svm_radial")
+
+tamaño_test <- 0.2
+train_indices <- sample(2 * 200 , floor((1 - tamaño_test) * 200))
+
+
+for (i in 1:Nrep) {
+  sigma <- 0.05
+  n <- 200
+  theta1 <- runif(n, 0, 2 * pi)
+  x11 <- cos(theta1) + rnorm(n, 0, sigma)
+  x12 <- sin(theta1) + rnorm(n, 0, sigma)
+
+  sigma <- 0.2
+  theta2 <- runif(n, 0, 2 * pi)
+  x21 <- sqrt(runif(n, 0, 1)) * cos(theta2)
+  x22 <- sqrt(runif(n, 0, 1)) * sin(theta2)
+
+  datos <- data.frame(
+    x1 = c(x11, x21),
+    x2 = c(x12, x22),
+    clase = factor(c(rep(1, n), rep(0, n))) 
+  )
+
+
+  train <- datos[train_indices, ]
+  test <- datos[-train_indices, ]
+
+  # Regresión Logística
+  regresion_log <- glm(clase ~ x1 + x2, data = train, family = "binomial")
+  pred_train_log <- ifelse(predict(regresion_log, train, type = "response") >= 0.5, 1, 0)
+  pred_test_log <- ifelse(predict(regresion_log, test, type = "response") >= 0.5, 1, 0)
+  
+  errores_train[i, "Logistica"] <- mean(train$clase != pred_train_log)
+  errores_test[i, "Logistica"] <- mean(test$clase != pred_test_log)
+
+  # LDA
+  ajuste_lda <- lda(clase ~ x1 + x2, data = train)
+  pred_train_lda <- predict(ajuste_lda, train)$class
+  pred_test_lda <- predict(ajuste_lda, test)$class
+
+  errores_train[i, "LDA"] <- mean(train$clase != pred_train_lda)
+  errores_test[i, "LDA"] <- mean(test$clase != pred_test_lda)
+
+  # QDA
+  ajuste_qda <- qda(clase ~ x1 + x2, data = train)
+  pred_train_qda <- predict(ajuste_qda, train)$class
+  pred_test_qda <- predict(ajuste_qda, test)$class
+
+  errores_train[i, "QDA"] <- mean(train$clase != pred_train_qda)
+  errores_test[i, "QDA"] <- mean(test$clase != pred_test_qda)
+  
+  #Hago SVM con los tres kernels que tengo
+  
+  svm.lineal <- svm(clase ~ x1 + x2,data = datos, kernel = "linear")
+  svm.poly3 <- svm(clase ~ x1 + x2,data = datos, kernel = "polynomial", degree = 3)
+  svm.radial <- svm(clase ~ x1 + x2,data = datos, kernel = "radial")
+  
+  errores_test[i, "svm_lineal"] <- error_svm(svm.lineal, test)
+  errores_test[i, "svm_polinomio_3"] <- error_svm(svm.poly3, test)
+  errores_test[i, "svm_radial"] <- error_svm(svm.radial, test)
+  
+}
+
+errores_train_df <- data.frame(errores_train, Repeticion = 1:Nrep)
+errores_test_df <- data.frame(errores_test, Repeticion = 1:Nrep)
+
+errores_train_long <- reshape2::melt(errores_train_df, id.vars = "Repeticion", variable.name = "Metodo", value.name = "Error")
+errores_test_long <- reshape2::melt(errores_test_df, id.vars = "Repeticion", variable.name = "Metodo", value.name = "Error")
+```
+
+```{r}
+print(paste(colnames(errores_test_df)[4], mean(errores_test_df[,4])))
+print(paste(colnames(errores_test_df)[5], mean(errores_test_df[,5])))
+print(paste(colnames(errores_test_df)[6], mean(errores_test_df[,6])))
+```
+
+
+```{r}
+ggplot(errores_test_long, aes(x = Metodo, y = Error, fill = Metodo)) +
+  geom_boxplot(outlier.shape = NA) +  # Eliminar los puntos de los valores atípicos
+  #geom_jitter(width = 0.2, alpha = 0.5) +  # Añadir jitter para visualizar mejor los puntos
+  ggtitle("Errores de Testeo por Método")
+
+```

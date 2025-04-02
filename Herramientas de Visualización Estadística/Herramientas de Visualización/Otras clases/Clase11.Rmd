@@ -1,0 +1,183 @@
+
+```{r}
+library(ggplot2)
+library(MASS)
+```
+
+```{r}
+datos <- read.table("wdbc.data", header = F, sep = ",")
+datos <- as.data.frame(datos[, -1])
+colnames(datos)[1] <- "diagnosis" 
+
+datos$diagnosis <- ifelse(datos$diagnosis == "M", 1, ifelse(datos$diagnosis == "B", 0, NA))
+```
+
+```{r}
+set.seed(2024)
+
+tamaño_test <- 0.2
+train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+
+train <- datos[train_indices, ]
+test <- datos[-train_indices, ]
+```
+
+```{r}
+res.pca <- prcomp(train[, -1], center = TRUE, scale = TRUE)
+eigenvalues <- res.pca$sdev**2
+primeras_dos_comp <- res.pca$rotation[, 1:2]
+```
+
+Sacar las componentes para el conjunto de train
+```{r}
+res.pca$x <- as.data.frame(res.pca$x)
+train_comp <- cbind(res.pca$x[,1:2], train$diagnosis)
+colnames(train_comp) <- c("PC1", "PC2", "diagnosis")
+train_comp_df <- as.data.frame(train_comp)
+```
+
+```{r}
+ajuste_lda <- lda(diagnosis ~ PC1 + PC2, train_comp)
+```
+Calculo el error de clasificación en el conjunto de prueba
+
+```{r}
+prediction_train_comp <- predict(ajuste_lda, newdata = train_comp_df)
+error_train <- mean(train$diagnosis != prediction_train_comp$class)
+print(paste("Error:", error_train))
+```
+
+
+```{r}
+test_centrado <- scale(test, center = TRUE, scale = TRUE)
+proyecciones <- test_centrado[, -1] %*% primeras_dos_comp
+proyecciones <- cbind(proyecciones, test$diagnosis)
+proyecciones <- as.data.frame(proyecciones)
+```
+
+```{r}
+prediction_test_comp <- predict(ajuste_lda, newdata = proyecciones)
+error_test <- mean(test$diagnosis != prediction_test_comp$class)
+print(paste("Error:", error_test))
+```
+Accuracy: es una medida global pero quiero saber cuánto le estoy pegando a cada grupo.
+```{r}
+accuracy_train <- 1 - error_train
+accuracy_test <- 1 - error_test
+accuracy_train
+accuracy_test
+```
+
+Grafico las primeras dos componentes para el conjunto de entrenamiento y de testeo
+
+```{r}
+ggplot(train_comp_df, aes(x = PC1, y = PC2, color = factor(diagnosis))) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Clasificación del entrenamiento con dos componentes",
+       x = "PC1",
+       y = "PC2",
+       color = "Diagnóstico") +
+  theme_minimal()
+```
+
+Ahora, ajustá el modelo de LDA utilizando las primeras cinco componentes principales. ¿Cómo cambia la precisión del modelo en comparación con el modelo que utiliza solo dos componentes? Recordá calcular la precisión en el conjunto de prueba con el modelo LDA obtenido con los datos de entrenamiento. Repetí utilizando las primeras diez componentes principales.
+
+```{r}
+res.pca <- prcomp(train[, -1], center = TRUE, scale = TRUE)
+eigenvalues <- res.pca$sdev**2
+primeras_cinco_comp <- res.pca$rotation[, 1:5]
+```
+
+Sacar las componentes para el conjunto de train
+```{r}
+res.pca$x <- as.data.frame(res.pca$x)
+train_comp <- cbind(res.pca$x[,1:5], train$diagnosis)
+colnames(train_comp) <- c("PC1", "PC2", "PC3", "PC4", "PC5", "diagnosis")
+train_comp_df <- as.data.frame(train_comp)
+```
+
+```{r}
+ajuste_lda <- lda(diagnosis ~ PC1 + PC2 + PC3 + PC4 + PC5, train_comp)
+```
+Calculo el error de clasificación en el conjunto de prueba
+
+```{r}
+prediction_train_comp <- predict(ajuste_lda, newdata = train_comp_df)
+error_train <- mean(train$diagnosis != prediction_train_comp$class)
+print(paste("Error:", error_train))
+```
+
+
+```{r}
+test_centrado <- scale(test, center = TRUE, scale = TRUE)
+proyecciones <- test_centrado[, -1] %*% primeras_cinco_comp
+proyecciones <- cbind(proyecciones, test$diagnosis)
+proyecciones <- as.data.frame(proyecciones)
+```
+
+```{r}
+prediction_test_comp <- predict(ajuste_lda, newdata = proyecciones)
+error_test <- mean(test$diagnosis != prediction_test_comp$class)
+print(paste("Error:", error_test))
+```
+Accuracy: es una medida global pero quiero saber cuánto le estoy pegando a cada grupo.
+```{r}
+accuracy_train <- 1 - error_train
+accuracy_test <- 1 - error_test
+accuracy_train
+accuracy_test
+```
+
+Grafico las primeras dos componentes para el conjunto de entrenamiento y de testeo
+
+```{r}
+ggplot(train_comp_df, aes(x = PC1, y = PC2, color = factor(diagnosis))) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Clasificación del entrenamiento con dos componentes",
+       x = "PC1",
+       y = "PC2",
+       color = "Diagnóstico") +
+  theme_minimal()
+```
+
+Ahora voy a hacerlo para las componentes entre 2 y 30, tomar accuracy y quedarme con la máxima:
+
+```{r}
+accuracy_componentes <- function(train = train, test = test, cant_comp){
+  #cant_comp <- 2
+  res.pca <- prcomp(train[, -1], center = TRUE, scale = TRUE)
+  eigenvalues <- res.pca$sdev**2
+  primeras_comp <- res.pca$rotation[, 1:cant_comp]
+  
+  res.pca$x <- as.data.frame(res.pca$x)
+  train_comp_df <- data.frame(res.pca$x[,1:cant_comp], diagnosis = train$diagnosis)
+  #train_comp_df <- as.data.frame(train_comp)
+  
+  ajuste_lda <- lda(diagnosis ~ ., train_comp_df)
+  
+  test_centrado <- scale(test, center = TRUE, scale = TRUE)
+  proyecciones <- test_centrado[, -1] %*% primeras_comp
+  proyecciones <- data.frame(proyecciones, diagnosis = test$diagnosis)
+  #proyecciones <- as.data.frame(proyecciones)
+  
+  prediction_test_comp <- predict(ajuste_lda, newdata = proyecciones)
+  error_test <- mean(test$diagnosis != prediction_test_comp$class)
+  
+  accuracy_test <- 1 - error_test
+  return(accuracy_test)
+}
+```
+
+```{r}
+res <- c()
+for (i in 2:30){
+  res <- c(res, accuracy_componentes(train, test, i))
+}
+optimo_comp <- which.max(res) + 1
+optimo_comp
+
+plot(res, ylim=c(0.8,1))
+```
+
+
+

@@ -1,0 +1,103 @@
+
+```{r}
+library(ggplot2)
+library(aplpack)
+```
+
+```{r}
+data("USArrests")
+datos <- USArrests
+head(datos)
+```
+
+```{r}
+faces(datos)
+stars(datos, labels = abbreviate(rownames(datos), 8), nrow = 5, key.loc = c(3, 14), full = TRUE)
+```
+
+```{r}
+colnames(datos) <- c('Murder','Assault', 'UrbanPop','Rape')
+pairs(datos)
+```
+
+HACEMOS EL ANÁLISIS DE COMPONENTES PRINCIPALES SIN ESCALAR LOS DATOS
+
+```{r}
+#Hacemos el análisis de componentes principales SIN ESCALAR los datos
+datos.centrados<-scale(datos, center=colMeans(datos), scale=FALSE)
+matriz.cov <- cov(datos.centrados)
+matriz.cov
+```
+
+```{r}
+#Busco los autovalores y autovectores de la matriz de covarianza
+eigen <- eigen(matriz.cov)
+eigen
+
+#Ordeno los autovalores en orden decreciente
+orden<-order(eigen$values,decreasing = TRUE)
+autovalores<-eigen$values[orden]
+autovectores<-eigen$vectors[orden,]
+
+round(autovalores,2)
+```
+
+```{r}
+# Calculamos scores
+
+pc.scores <- t(autovectores) %*% t(datos.centrados) #tmb podria ser t(datos.centrados%*%autovectores)
+rownames(pc.scores) <- c("PC1", "PC2", "PC3", "PC4")
+head(t(pc.scores))
+
+#con esto podemos recuperar todos los datos (ya que usamos todas las componentes)
+datoscentrados.recuperados <- t(autovectores %*% pc.scores)
+#chequeemos
+head(datoscentrados.recuperados)
+```
+
+HACEMOS EL ANÁLISIS DE COMPONENTES PRINCIPALES ESCALANDO LOS DATOS
+```{r}
+#Hacemos el análisis de componentes principales SIN ESCALAR los datos
+datos.centrados<-scale(datos, center=colMeans(datos), scale=TRUE)
+matriz.cov <- cov(datos.centrados)
+matriz.cov
+```
+
+```{R}
+#Busco los autovalores y autovectores de la matriz de covarianza
+eigen <- eigen(matriz.cov)
+eigen
+
+#Ordeno los autovalores en orden decreciente
+orden<-order(eigen$values,decreasing = TRUE)
+autovalores<-eigen$values[orden]
+autovectores<-eigen$vectors[orden,]
+
+round(diag(round(t(autovectores)%*%matriz.cov%*%autovectores,2)),2)
+round(autovalores,2)
+```
+
+```{r}
+# Calculamos scores
+
+pc.scores <- t(autovectores) %*% t(datos.centrados) #tmb podria ser t(datos.centrados%*%autovectores)
+rownames(pc.scores) <- c("PC1", "PC2", "PC3", "PC4")
+head(t(pc.scores))
+
+```
+
+Para poder interpretar los datos a través de la proyección en los autovectores
+```{r}
+# Reutilizamos los autovectores calculados anteriormente, limitándonos a las primeras dos componentes
+matriz_autovectores <- autovectores[, 1:2]
+datos_proyectados <- datos.centrados %*% matriz_autovectores
+plot(datos_proyectados, main = "Proyección en las dos primeras componentes principales")
+```
+
+```{r}
+#con esto podemos recuperar todos los datos (ya que usamos todas las componentes)
+datoscentrados.recuperados <- t(autovectores %*% pc.scores)
+#chequeemos
+head(datoscentrados.recuperados)
+```
+

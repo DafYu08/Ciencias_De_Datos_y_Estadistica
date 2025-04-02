@@ -1,0 +1,319 @@
+
+```{r}
+library(MASS)
+library(ggplot2)
+library(aplpack)
+library(pcaPP)
+library(rrcov)
+```
+
+```{r}
+# SIN CONT
+matriz.cov = matrix(c(1.2, 1, 1, 1.2), 2, 2, byrow = TRUE)
+set.seed(2024)
+n = 500
+mu = matrix(c(0,0), 2, 1)
+muestra <- mvrnorm(n = n, mu = mu, Sigma = matriz.cov)
+media <- colMeans(muestra)
+mediana_espacial <- l1median(muestra)
+```
+
+#Componentes Principales Clásico
+```{r}
+eig <- eigen(matriz.cov)
+autovalores_poblacional <- eig$values
+autovectores_poblacional <- eig$vectors
+
+matriz.cov_estimado <- cov(muestra)
+eigen_estimado <- eigen(matriz.cov_estimado)
+autovalores_estimado <- eigen_estimado$values
+autovectores_estimado <- eigen_estimado$vectors
+```
+
+#PCA robusto
+```{r}
+Pca_robusta <- PcaLocantore(muestra)
+autovalores_robustos <- Pca_robusta$eigenvalues
+autovectores_robustos <- Pca_robusta$loadings
+```
+
+
+```{r}
+muestra <- as.data.frame(muestra)
+colnames(muestra) <- c("X1", "X2")
+
+range_x <- range(muestra$X1)
+range_y <- range(muestra$X2)
+
+# Función para trazar la línea a lo largo de un autovector
+get_line <- function(v, mu, range_x) {
+  slope <- v[2] / v[1]
+  intercept <- mu[2] - slope * mu[1]
+  x_vals <- c(range_x[1], range_x[2])
+  y_vals <- intercept + slope * x_vals
+  return(data.frame(x = x_vals, y = y_vals))
+}
+
+# Obtener las líneas para los autovectores poblacionales y estimados
+line_poblacional <- get_line(autovectores_poblacional[, 1], mu, range_x)
+line_estimado <- get_line(autovectores_estimado[, 1], mu, range_x)
+line_robusto <- get_line(autovectores_robustos[, 1], mu, range_x)
+
+# Graficar los datos y las líneas de autovectores
+ggplot(muestra, aes(x = X1, y = X2)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = line_poblacional, aes(x = x, y = y), color = "blue", size = 1) +
+  geom_line(data = line_estimado, aes(x = x, y = y), color = "red", size = 1) +
+  geom_line(data = line_robusto, aes(x = x, y = y), color = "orange", size = 1, linetype = "dashed") +
+  labs(title = "Datos y Autovectores: Azul (Poblacional), Rojo (Estimado), Naranja (Robusto)") +
+  theme_minimal()
+```
+# CONTAMINACION SEVERA
+
+```{r}
+matriz.cov_cont1 = matrix(c(0.2, 0, 0, 0.2), 2, 2, byrow = TRUE)
+set.seed(2024)
+mu = matrix(c(-2,2), 2, 1)
+muestra1 <- mvrnorm(n = 25, mu = mu, Sigma = matriz.cov_cont1)
+media_1 <- colMeans(muestra1)
+mediana_espacial_1 <- l1median(muestra1)
+```
+
+
+```{r}
+colnames(muestra1) <- c("X1", "X2")
+primera_contaminacion <- rbind(muestra1, muestra[26:500,1:2])
+```
+
+Contaminamos y estimamos de forma clásica
+```{r}
+matriz.cov_estimado2 <- cov(primera_contaminacion)
+eigen_estimado2 <- eigen(matriz.cov_estimado2)
+autovalores_estimado2 <- eigen_estimado2$values
+autovectores_estimado2 <- eigen_estimado2$vectors
+```
+
+Contaminamos y usamos robusto
+```{r}
+Pca_robusta2 <- PcaLocantore(primera_contaminacion)
+autovalores_robustos2 <- Pca_robusta2$eigenvalues
+autovectores_robustos2 <- Pca_robusta2$loadings
+```
+
+```{r}
+# Convertir la muestra en un data frame
+muestra1 <- as.data.frame(primera_contaminacion)
+colnames(muestra1) <- c("X1", "X2")
+
+# Crear un rango para las líneas
+range_x <- range(muestra1$X1)
+range_y <- range(muestra1$X2)
+
+# Obtener las líneas para los autovectores poblacionales y estimados
+line_poblacional <- get_line(autovectores_poblacional[, 1], c(0,0), range_x)
+line_estimado <- get_line(autovectores_estimado2[, 1], c(0,0), range_x)
+line_robusto <- get_line(autovectores_robustos2[, 1], c(0,0), range_x)
+
+# Graficar los datos y las líneas de autovectores
+ggplot(muestra1, aes(x = X1, y = X2)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = line_poblacional, aes(x = x, y = y), color = "blue", size = 1) +
+  geom_line(data = line_estimado, aes(x = x, y = y), color = "red", size = 1) +
+  geom_line(data = line_robusto, aes(x = x, y = y), color = "orange", size = 1, linetype = "dashed") +
+  labs(title = "Datos y Autovectores: Azul (Poblacional), Rojo (Estimado), Naranja (Robusto)") +
+  theme_minimal()
+```
+
+```{r}
+matriz.cov_cont1 = matrix(c(0.2, 0, 0, 0.2), 2, 2, byrow = TRUE)
+set.seed(2024)
+mu = matrix(c(-6,6), 2, 1)
+muestra1 <- mvrnorm(n = 25, mu = mu, Sigma = matriz.cov_cont1)
+media_1 <- colMeans(muestra1)
+mediana_espacial_1 <- l1median(muestra1)
+```
+
+
+```{r}
+colnames(muestra1) <- c("X1", "X2")
+primera_contaminacion <- rbind(muestra1, muestra[26:500,1:2])
+```
+
+Contaminamos y estimamos de forma clásica
+```{r}
+matriz.cov_estimado2 <- cov(primera_contaminacion)
+eigen_estimado2 <- eigen(matriz.cov_estimado2)
+autovalores_estimado2 <- eigen_estimado2$values
+autovectores_estimado2 <- eigen_estimado2$vectors
+```
+
+Contaminamos y usamos robusto
+```{r}
+Pca_robusta2 <- PcaLocantore(primera_contaminacion)
+autovalores_robustos2 <- Pca_robusta2$eigenvalues
+autovectores_robustos2 <- Pca_robusta2$loadings
+```
+
+```{r}
+# Convertir la muestra en un data frame
+muestra1 <- as.data.frame(primera_contaminacion)
+colnames(muestra1) <- c("X1", "X2")
+
+# Crear un rango para las líneas
+range_x <- range(muestra1$X1)
+range_y <- range(muestra1$X2)
+
+# Obtener las líneas para los autovectores poblacionales y estimados
+line_poblacional <- get_line(autovectores_poblacional[, 1], c(0,0), range_x)
+line_estimado <- get_line(autovectores_estimado2[, 1], c(0,0), range_x)
+line_robusto <- get_line(autovectores_robustos2[, 1], c(0,0), range_x)
+
+# Graficar los datos y las líneas de autovectores
+ggplot(muestra1, aes(x = X1, y = X2)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = line_poblacional, aes(x = x, y = y), color = "blue", size = 1) +
+  geom_line(data = line_estimado, aes(x = x, y = y), color = "red", size = 1) +
+  geom_line(data = line_robusto, aes(x = x, y = y), color = "orange", size = 1, linetype = "dashed") +
+  labs(title = "Datos y Autovectores: Azul (Poblacional), Rojo (Estimado), Naranja (Robusto)") +
+  theme_minimal()
+```
+Propuesta: cómo romper la robusta?
+
+```{r}
+matriz.cov_cont1 = matrix(c(0.2, 0, 0, 0.2), 2, 2, byrow = TRUE)
+set.seed(2024)
+mu = matrix(c(-6,6), 2, 1)
+muestra1 <- mvrnorm(n = 200, mu = mu, Sigma = matriz.cov_cont1)
+media_1 <- colMeans(muestra1)
+mediana_espacial_1 <- l1median(muestra1)
+
+colnames(muestra1) <- c("X1", "X2")
+primera_contaminacion <- rbind(muestra1, muestra[201:500,1:2])
+```
+
+Contaminamos y estimamos de forma clásica
+```{r}
+matriz.cov_estimado2 <- cov(primera_contaminacion)
+eigen_estimado2 <- eigen(matriz.cov_estimado2)
+autovalores_estimado2 <- eigen_estimado2$values
+autovectores_estimado2 <- eigen_estimado2$vectors
+```
+
+Contaminamos y usamos robusto
+```{r}
+Pca_robusta2 <- PcaLocantore(primera_contaminacion)
+autovalores_robustos2 <- Pca_robusta2$eigenvalues
+autovectores_robustos2 <- Pca_robusta2$loadings
+```
+
+```{r}
+# Convertir la muestra en un data frame
+muestra1 <- as.data.frame(primera_contaminacion)
+colnames(muestra1) <- c("X1", "X2")
+
+# Crear un rango para las líneas
+range_x <- range(muestra1$X1)
+range_y <- range(muestra1$X2)
+
+# Obtener las líneas para los autovectores poblacionales y estimados
+line_poblacional <- get_line(autovectores_poblacional[, 1], c(0,0), range_x)
+line_estimado <- get_line(autovectores_estimado2[, 1], c(0,0), range_x)
+line_robusto <- get_line(autovectores_robustos2[, 1], c(0,0), range_x)
+
+# Graficar los datos y las líneas de autovectores
+ggplot(muestra1, aes(x = X1, y = X2)) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = line_poblacional, aes(x = x, y = y), color = "blue", size = 1) +
+  geom_line(data = line_estimado, aes(x = x, y = y), color = "red", size = 1) +
+  geom_line(data = line_robusto, aes(x = x, y = y), color = "orange", size = 1, linetype = "dashed") + coord_fixed() +
+  labs(title = "Datos y Autovectores: Azul (Poblacional), Rojo (Estimado), Naranja (Robusto)") +
+  theme_minimal()
+```
+Bueno, con un 40% se rompe
+
+
+
+SEGUNDA ACTIVIDAD
+
+```{r}
+library(jpeg)
+# Cargar la imagen
+imagen <- readJPEG('gustavo.jpg')
+
+# Verificar las dimensiones de la imagen
+dim(imagen)  # Devuelve: altura x ancho x 3 (para R, G, B)
+```
+
+```{r}
+# Extraer los tres canales de color
+color1 <- imagen[,,1]  # Canal Rojo
+color2 <- imagen[,,2]  # Canal Verde
+color3 <- imagen[,,3]  # Canal Azul
+
+dim(color1)
+dim(color2)
+dim(color3)
+```
+
+Graficamos cada color
+```{r}
+writeJPEG(color1, "color1.jpg")
+writeJPEG(color2, "color2.jpg")
+writeJPEG(color3, "color3.jpg")
+
+img_blue <- imagen
+img_blue[,,2] <- 0
+img_blue[,,1] <- 0
+writeJPEG(img_blue, "color_azul.jpg")
+```
+
+
+Aplicamos PCA al color rojo
+```{r}
+
+pca_color1 <- prcomp(color1, center = FALSE)
+autovalores_estimado <- pca_color1$sdev**2
+autovectores_estimado <- pca_color1$rotation
+scores <- pca_color1$x
+scores
+```
+
+```{r}
+
+datos_recuperados <- t(autovectores_estimado %*% scores)
+head(datos_recuperados)
+```
+
+
+
+```{r}
+library(jpeg)
+
+imagen <- readJPEG('laBanda.jpg')
+color1 <- imagen[,,1]  
+color2 <- imagen[,,2]  
+color3 <- imagen[,,3]  
+
+compress_and_reconstruct <- function(color_channel, n_components) {
+
+  pca_result <- prcomp(color_channel, center = FALSE)
+  scores <- pca_result$x[, 1:n_components]
+  loadings <- pca_result$rotation[, 1:n_components]
+  reconstructed <- scores %*% t(loadings)
+  reconstructed <- pmin(pmax(reconstructed, 0), 1)
+  return(reconstructed)
+}
+
+n_components <- 20
+color1_compressed <- compress_and_reconstruct(color1, n_components)
+color2_compressed <- compress_and_reconstruct(color2, n_components)
+color3_compressed <- compress_and_reconstruct(color3, n_components)
+
+imagen_comprimida <- array(0, dim = dim(imagen))
+imagen_comprimida[,,1] <- color1_compressed
+imagen_comprimida[,,2] <- color2_compressed
+imagen_comprimida[,,3] <- color3_compressed
+
+writeJPEG(imagen_comprimida, "imagen_comprimida_laBanda.jpg")
+```
+

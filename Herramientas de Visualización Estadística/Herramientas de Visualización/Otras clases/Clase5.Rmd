@@ -1,0 +1,118 @@
+```{r}
+library(ggplot2)
+library(aplpack)
+```
+
+```{r}
+df = read.csv("mnist-digits.csv")
+View(df)
+```
+
+```{r}
+df <- subset(df, X1 == 3)
+df <- df[,-1]
+View(df)
+```
+
+```{r}
+norma2 <- function(a) sum(a^2)
+norma <- function(a) sqrt(norma2(a))
+dist <- function(a, b) norma2(a - b)
+
+myImagePlot <- function(x) {
+    min <- min(x)
+    max <- max(x)
+    ColorRamp <- grey(seq(1, 0, length = 784))
+    ColorLevels <- seq(min, max, length = length(ColorRamp))
+    # Reverse Y axis
+    reverse <- nrow(x):1
+    x <- x[reverse, ]
+    image(1:ncol(x), 1:nrow(x), t(x), col = ColorRamp, xlab = "", ylab = "", axes = FALSE,
+        zlim = c(min, max))
+}
+```
+
+```{r}
+set.seed(123)
+muestra_25 <- sample(nrow(df), 25)
+par(mai = c(1, 1, 1, 1)/5, xaxs = "i", yaxs = "i")
+par(mfrow = c(5, 5))
+for (j in 1:25){
+  myImagePlot(t(matrix(unlist(df[muestra_25[j], ]), 28, 28)))
+}
+```
+
+```{r}
+#Análisis de PCAs (componentes principales)
+df_3_sinCol0 <- df[, colSums(df != 0) > 0]
+
+# Realizar el PCA con las columnas seleccionadas
+res.pca <- prcomp(df_3_sinCol0, center = TRUE, scale. = FALSE)
+eigenvalues <- res.pca$sdev**2
+round(eigenvalues, 2)
+```
+
+```{r}
+eigenvectors <- res.pca$rotation
+round(eigenvectors, 2)
+```
+
+```{r}
+prim_comp <- res.pca$x[, 1]  # Primera componente principal
+seg_comp <- res.pca$x[, 2]   # Segunda componente principal
+
+
+cuantiles_prim <- quantile(prim_comp, probs = c(0.05, 0.25, 0.5, 0.75, 0.95))
+cuantiles_seg <- quantile(seg_comp, probs = c(0.05, 0.25, 0.5, 0.75, 0.95))
+
+# Crear la grilla de puntos
+plot(prim_comp, seg_comp, pch = 19, cex = 1, col = "grey")
+abline(h = cuantiles_seg, v = cuantiles_prim, col = "blue", lty = 2)
+
+# Agregar los puntos en las intersecciones de los cuantiles
+for (i in 1:length(cuantiles_prim)) {
+  for (j in 1:length(cuantiles_seg)) {
+    points(cuantiles_prim[i], cuantiles_seg[j], pch = 19, col = "red", cex = 1)
+  }
+}
+
+```
+Ahora, una vez que me armé la grilla. Busco los 25 puntos en la muestra que estén a distancia mínima de las intersecciones de la grilla.
+```{r}
+
+puntos_mas_cercanos_a_la_grilla <- c()
+vs <- cbind(prim_comp, seg_comp)
+
+for (i in 1:5) {
+  for (j in 1:5) {
+    punto_grilla <- c(cuantiles_prim[i], cuantiles_seg[j])
+    distancias <- apply(vs, 1, function(punto) dist(punto, punto_grilla))
+    indice_min <- which.min(distancias)
+    puntos_mas_cercanos_a_la_grilla <- rbind(puntos_mas_cercanos_a_la_grilla, vs[indice_min, ])
+  }
+}
+
+plot(prim_comp, seg_comp, pch = 19, cex = 1, col = "grey", asp = 1)
+points(puntos_mas_cercanos_a_la_grilla, pch = 19, col = "blue", cex = 1)
+
+```
+```{r}
+indices_mas_cercanos <- c()
+
+for (j in 1:5) {
+  for (i in 1:5) {
+    punto_grilla <- c(cuantiles_prim[i], cuantiles_seg[j])
+    distancias <- apply(vs, 1, function(punto) dist(punto, punto_grilla))
+    indice_min <- which.min(distancias)
+    indices_mas_cercanos <- c(indices_mas_cercanos, indice_min)
+  }
+}
+
+datos_mas_cercanos <- df[indices_mas_cercanos, ]
+
+par(mai = c(1, 1, 1, 1)/5, xaxs = "i", yaxs = "i")
+par(mfrow = c(5, 5))
+for (k in 1:25) {
+  myImagePlot(t(matrix(unlist(datos_mas_cercanos[k, ]), 28, 28)))
+}
+```

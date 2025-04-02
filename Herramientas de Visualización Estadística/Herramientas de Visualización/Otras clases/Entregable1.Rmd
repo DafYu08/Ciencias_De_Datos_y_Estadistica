@@ -1,0 +1,326 @@
+---
+Autora: "Yudcovsky-Dafne"
+Entrega: "10/09/2024"
+---
+```{r}
+library(faraway)
+library(MASS)
+library(ggplot2)
+library(aplpack)
+library(pcaPP)
+library(rrcov)
+library(caret) # Esta librería es para validación cruzada
+```
+
+```{r}
+datos <- meatspec
+datos <- as.data.frame(datos)
+```
+
+```{r}
+set.seed(2024) #Usé esta semilla porque vivo en el presente
+
+tamaño_test <- 0.1860465
+train_indices <- sample(seq_len(nrow(datos)), size = (1 - tamaño_test) * nrow(datos))
+
+train <- datos[train_indices, ]
+test <- datos[-train_indices, ]
+```
+
+```{r}
+ajuste_lineal <- lm(fat ~ ., data = train)
+summary(ajuste_lineal)
+```
+
+Ahora que tenemos el modelo lineal para el conjunto de train, calculamos las predicciones que obtenemos para el conjunto de test y calculamos el error cuadrático medio.
+```{r}
+predictions_test <- predict(ajuste_lineal, newdata = test)
+mse_test <- mean((test$fat - predictions_test)^2)
+print(paste("MSE:", mse_test))
+```
+Y luego calculamos el error para el conjunto de entrenamiento.
+```{r}
+predictions_train <- predict(ajuste_lineal, newdata = train)
+mse_train <- mean((train$fat - predictions_train)^2)
+print(paste("MSE:", mse_train))
+```
+ Podemos observar, como dicta la intuición, que hay una diferencia notable entre el MSE del conjunto de entrenamiento y del conjunto de validación. Mientras que el valor del MSE_test es de 5.08, el de MSE_train es 0.65, casi 10 veces menor al de test. Esto se debe a que entrenamos el modelo lineal con el primero de ellos.
+ 
+ 
+ PARTE 2
+
+Análisis PCA
+```{r}
+# Realizar el PCA con las columnas seleccionadas
+train_sin_fat <- train[, 1:100]
+res.pca <- prcomp(train_sin_fat, center = TRUE, scale. = FALSE)
+eigenvalues <- res.pca$sdev**2
+round(eigenvalues, 2)
+```
+Solo centramos la muestra y no escalamos, debido a que solo queremos poner la ordenada al origen en cero para usar las propiedades lindas de la media 0. No me interesa independizarme de las unidades de las variables, que es lo que hacemos cuando escalamos los valores. 
+Los valores singulares en el comando prcomp se encuentran en sdev y los autovalores son elevarlos al cuadrado, para luego redondearlos.
+
+```{r}
+primeras_cuatro_comp <- res.pca$rotation[, 1:4] #primeras 4 comp. princ.
+head(primeras_cuatro_comp)
+```
+
+Ahora, hacemos lo mismo que antes pero en lugar de tomar las 100 variables, usamos solo las primeras 4 componentes principales para realizar un ajuste lineal. Para reconstruir los datos de 100 variables en 4 componentes, miro los scores de cada dato que son las proyecciones de los datos en esas cuatro componentes. Por lo que mi train nuevo son los scores y con eso ajusto el modelo.
+
+```{r}
+res.pca$x <- as.data.frame(res.pca$x) #res.pca$x guarda los scores de cada dato para cada componente principal.
+train_comp <- cbind(res.pca$x[,1:4], train$fat) #Juntamos los scores con la columna fat para poder hacer el mismo análisis que en la parte 1.
+colnames(train_comp) <- c("PC1", "PC2", "PC3", "PC4", "fat")
+train_comp_df <- as.data.frame(train_comp)
+```
+
+```{r}
+ajuste_lineal_cuatro_comp <- lm(fat ~ ., data = train_comp)
+summary(ajuste_lineal_cuatro_comp)
+```
+
+Ahora, para ver qué tan bien se ajusta el modelo lineal con las componentes principales al conjunto de test, observo las proyecciones de los datos de test en las componentes principales y realizo el mse para ver cuál es el error que tiene en la predicción con menos "variables".
+Acá centramos los datos originales del conjunto de validación porque como la parte del train que usamos para el pca estaba centrada, ahora para poder observar qué tan bien predice el conjunto de test, también tenemos que hacerlo centrado.
+
+```{r}
+test_centrado <- scale(test, center = TRUE, scale = FALSE)
+proyecciones <- test_centrado[,1:100] %*% primeras_cuatro_comp
+proyecciones <- as.data.frame(proyecciones)
+```
+
+
+```{r}
+prediction_test_comp <- predict(ajuste_lineal_cuatro_comp, newdata = proyecciones)
+mse_test2 <- mean((test$fat - prediction_test_comp)^2)
+print(paste("MSE:", mse_test2))
+```
+
+```{r}
+prediction_train_comp <- predict(ajuste_lineal_cuatro_comp, newdata = train_comp)
+mse_train2 <- mean((train$fat - prediction_train_comp)^2)
+print(paste("MSE:", mse_train2))
+```
+Reduciendo la dimensionalidad, el MSE aumentó. Las componentes principales son calculadas con el conjunto de train, por lo que al tener menos variables, puedo llegar a perder todavía más información que antes. Por lo tanto, en este caso empeoró bastante la predicción, por lo que para entender mejor qué está pasando, vamos a seguir en la siguiente parte a ver si con cross validation mejoramos un poco.
+
+PARTE 3
+
+Función para validación cruzada (utiliza el método pcr como pedía):
+```{r}
+cv_pca_mse <- function(datos, cant_comp, folds=5) {
+  set.seed(2024)
+  n <- nrow(datos)
+  indices <- sample(1:n)
+  fold_size <- floor(n / folds)  # Como el tamaño de la muestra es múltiplo de 5, esto lo hago en general pero floor queda igual.
+  fold_indices <- vector("list", folds)
+  
+  for (i in 1:folds) {
+    start_idx <- (i - 1) * fold_size + 1
+    end_idx <- if (i < folds) i * fold_size else n
+    fold_indices[[i]] <- indices[start_idx:end_idx]
+  }
+  
+  #print(fold_indices)
+  mse_values <- numeric(folds)
+  for (i in 1:folds) {
+    test_indices <- fold_indices[[i]] 
+    train_indices <- unlist(fold_indices[-i]) #agarra el fold i para usarlo de conjunto de test
+    
+    train_data <- datos[train_indices, ]
+    test_data <- datos[test_indices, ]
+    pca_train <- prcomp(train_data[, -101], scale. = FALSE)
+    
+    datos_train_regresion <- as.data.frame(cbind(pca_train$x[, 1:cant_comp], fat = train_data$fat))
+    modelo_final <- lm(fat ~ ., data = datos_train_regresion)
+    
+    test_matrix <- as.matrix(test_data[, -ncol(test_data)])
+    test_proyecciones <- as.data.frame(predict(pca_train, newdata = test_data)[, 1:cant_comp])
+    
+    pred_test_final <- predict(modelo_final, newdata = test_proyecciones)
+    mse_test_final <- mean((test_data$fat - pred_test_final)^2)
+    mse_values[i] <- mse_test_final
+  }
+  mse_promedio <- mean(mse_values)
+  
+  return(mse_promedio)
+}
+```
+
+
+Ahora vamos a calcular el MSE para cada cantidad de componentes, usando dentro del conjunto de entrenamiento original (train), 4 folds para entrenar el nuevo modelo y uno para testear en cada uno de los 5 folds (como funciona cv habitualmente). Luego, como hicimos esto mismo 5 veces para cada cantidad de componentes entre 1 y 60, lo que hacemos es tomar el promedio de estas 5, y luego poder quedarnos con el mejor promedio dentro de ese rango.
+
+
+```{r}
+res_mse <- c()
+for (i in 2:60){
+  res_mse <- c(res_mse, cv_pca_mse(train, i, 5))
+}
+print(res_mse)
+```
+
+```{r}
+res_mse[4] #creo que está bien porque antes el mse del test para 4 había dado 18.83, así que parece razonable que con cv ahora sea cercano a 18...
+```
+
+
+```{r}
+# Para graficar con ggplot, lo paso a dataframe porque sino se enoja.
+rango_cant_comp <- 2:60
+df_mse <- data.frame(
+  Componentes = rango_cant_comp,
+  MSE = res_mse
+)
+
+ggplot(df_mse, aes(x = Componentes, y = MSE)) +
+  geom_line(color = "purple", size = 1) +
+  geom_point(color = "darkgreen", size = 2) + 
+  labs(title = "Error cuadrático medio vs #Componentes", 
+       x = "Cantidad de Componentes Principales", 
+       y = "MSE Promedio") +
+  scale_x_continuous(breaks = seq(0, max(df_mse$Componentes), by = 5)) +
+  scale_y_continuous(breaks = seq(0, max(df_mse$MSE), by = 10)) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+```
+En el gráfico podemos observar que el error baja abruptamente al principio, y a partir de las 5 componentes se estabiliza cercano a 10 y comienza a bajar mucho más lentamente. Cuando se toman muchas componentes, el error vuelve a subir de a poco por el overfitting.
+
+```{r}
+optimo_comp <- which.min(res_mse) + 1
+paste("Número óptimo de componentes:", optimo_comp) #20, más o menos lo que se veía.
+res_mse[optimo_comp]
+```
+
+Ahora ajustamos el modelo de regresión lineal con el número de componentes óptimo. Vamos a usar para validar el conjunto de test original.
+
+```{r}
+pca_final <- prcomp(train[, 1:100], center = TRUE)
+train_final_scores <- as.data.frame(pca_final$x[, 1:optimo_comp]) #tomamos los scores de las primeras "optimo" componentes
+train_final_scores$fat <- train$fat #agregamos la columna fat que va a ser la misma que en el conjunto train original
+
+modelo_final <- lm(fat ~ ., data = train_final_scores)
+summary(modelo_final)
+```
+
+```{r}
+#Hacemos lo mismo que en la parte 2, centramos el conjunto de testeo.
+test_centrado <- scale(test[, 1:100], center = TRUE, scale = FALSE) #Centro los datos de testeo porque los datos del pca de train estaban centrados así que el modelo está centrado.
+test_proyecciones <- as.data.frame(test_centrado %*% pca_final$rotation[, 1:optimo_comp])
+
+# Idem
+pred_test_final <- predict(modelo_final, newdata = test_proyecciones)
+mse_test_final <- mean((test$fat - pred_test_final)^2)
+paste("MSE en test con componentes óptimos:", mse_test_final)
+```
+
+PARTE 4
+
+```{r}
+library(pls)
+```
+
+Voy a usar la función pcr que según el help de R automatiza Principal Components Regression. Tomo el conjunto train original sin la columna 'fat', que va a ser la respuesta (y).
+```{r}
+ajuste_pcr <- pcr(fat ~ ., data = train,  scale = FALSE, center = TRUE  , validation = "none", ncomp = 4) #Agarro las 4 componentes como en la parte 2 y no escalo nada.
+summary(ajuste_pcr)
+```
+Este comando nos explicita cuánto porcentaje de la varianza total explica cada componente. Y como antes, podemos observar que las primeras cuatro componentes explican un 99.99% de la varianza. Pero por otro lado, la fila 'fat' expresa, para la n-ésima componente, cuánta varianza explicada viene acumulando desde la primera hasta la misma. En el caso de la 4ta, explica un 89.20%. 
+
+Ahora bien, para hacer la predicción en el conjunto de test necesitamos centrar los datos igual que en el train. Después todo parecido al 2 pero más cortito el código.
+
+```{r}
+test_centrado <- as.data.frame(test)
+predicciones_pcr_test <- predict(ajuste_pcr, newdata = test_centrado, ncomp = 4)
+pcr_test_mse <- mean((test$fat - predicciones_pcr_test)^2)
+print(paste("MSE en test con PCR:", pcr_test_mse))
+```
+
+```{r}
+predicciones_pcr_train <- predict(ajuste_pcr, newdata = train[,1:100], ncomp = 4)
+pcr_train_mse <- mean((train$fat - predicciones_pcr_train)^2)
+print(paste("MSE en train con PCR:", pcr_train_mse))
+```
+
+Ahora que ya entendimos cómo funciona pcr(), vamos a buscar el número de componentes principales que minimiza el mse, en un rango entre 1 y 60. Luego, queremos comparar con el resultado de la parte 3.
+
+```{r}
+rango_cant_comp <- 1:60
+res_mse <- numeric(length(rango_cant_comp))
+
+for (k in rango_cant_comp) {
+  ajuste_pcr_cv <- pcr(fat ~ ., data = train, scale = FALSE, center = TRUE, validation = "CV", ncomp = k)
+  mse_pcr_cv <- MSEP(ajuste_pcr_cv, estimate = "CV") #Uso la función MSEP
+  res_mse[k] <- mse_pcr_cv$val[,,k]
+}
+```
+
+Grafico los MSE promedio
+```{r}
+# Crear un data frame para la gráfica
+df_mse <- data.frame(
+  Componentes = rango_cant_comp,
+  MSE = res_mse
+)
+
+# Graficar MSE en función del número de componentes principales
+ggplot(df_mse, aes(x = Componentes, y = MSE)) +
+  geom_line(color = "purple", size = 1) +
+  geom_point(color = "darkgreen", size = 2) + 
+  labs(title = "MSE Promedio vs Número de Componentes Principales (PCR)",
+       x = "Número de Componentes Principales",
+       y = "MSE Promedio") +
+  scale_y_continuous(breaks = seq(0, max(df_mse$MSE), by = 10)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+```
+
+```{r}
+indice_optimo <- which.min(res_mse)
+numero_optimo <- rango_cant_comp[indice_optimo]
+print(paste("La cantidad de componentes que minimiza es: ", numero_optimo))
+res_mse[22]
+```
+En la parte 3, obtuvimos que quien minimizaba la función era el 20 y res_mse[20] = 5.533075.
+Ahora tenemos que la cantidad de componentes que minimiza el mse es 22, donde res_mse[22] = 5.058911. Un poquito mejor.
+
+```{r}
+ajuste_pcr_optimo <- pcr(fat ~ ., data = train, scale = FALSE, center = TRUE, validation = "CV", ncomp = numero_optimo)
+summary(ajuste_pcr_optimo)
+
+# Predecir en el conjunto de test
+test_centrado <- scale(test[,1:100], center = FALSE, scale = FALSE)
+predicciones_test_optimo <- predict(ajuste_pcr_optimo, newdata = test_centrado, ncomp = numero_optimo)
+
+# Calcular el MSE en el conjunto de test
+mse_test_optimo <- mean((test$fat - predicciones_test_optimo)^2)
+print(paste("MSE en test con PCR usando el número óptimo de componentes (", numero_optimo, "):", mse_test_optimo))
+```
+
+
+EXTRA
+```{r}
+# Instalar y cargar el paquete RColorBrewer si no está instalado
+if (!require(RColorBrewer)) install.packages("RColorBrewer")
+library(RColorBrewer)
+
+```
+
+```{r}
+colores = colores <- colorRampPalette(RColorBrewer::brewer.pal(12, "Paired"))(100)
+
+plot(1:100, datos[1, 1:100], type = "l", col = colores, xlab = "Número de Covariable", ylab = "Absorbancia", ylim = c(2, 6), main = "Absorbancia en función del Número de Covariable")
+
+# Añadir curvas para cada observación
+for (i in 1:nrow(datos)) {
+  lines(x = 1:100, y = datos[i, 1:100],col = rgb(0, 0, 1, alpha = (datos$fat[i] - min(datos$fat)) / (max(datos$fat) - min(datos$fat))))
+}
+
+```
+Haciendo cierto análisis, se pueden observar los datos como curvas funcionales, que permite aprovechar la estructura que tienen tus datos. 
+
+

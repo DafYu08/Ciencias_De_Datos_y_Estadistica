@@ -1,0 +1,45 @@
+```{r}
+library(ggplot2)
+library(aplpack)
+```
+
+```{r}
+datos <- read.table("constructora.txt", header = TRUE)
+datos <- datos[, -1]
+colnames(datos) <- c("dm_hip", "precio", "sup_coc")
+```
+
+```{r}
+datos.centrados <- scale(datos, center = TRUE, scale = TRUE)
+```
+
+```{r}
+pairs(datos.centrados, col = "red")
+```
+
+```{r}
+matriz.cov <- cov(datos.centrados)
+matriz.cov
+```
+
+```{r}
+eigen <- eigen(matriz.cov)
+eigen
+
+orden<-order(eigen$values,decreasing = TRUE)
+autovalores<-eigen$values[orden]
+autovectores<-eigen$vectors[orden,]
+
+round(autovalores,2)
+```
+
+```{r}
+# Calculamos scores
+
+pc.scores <- t(autovectores) %*% t(datos.centrados) #tmb podria ser t(datos.centrados%*%autovectores)
+rownames(pc.scores) <- c("PC1", "PC2", "PC3")
+head(t(pc.scores))
+
+prim_comp <- 
+```
+
